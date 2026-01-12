@@ -51,6 +51,9 @@ class CloneService {
   private worker: Worker | null = null
   private pending: Map<string, PendingRequest> = new Map()
   private requestId = 0
+  private llmModel: any = null
+  private llmContext: any = null
+  private llmModelPath: string | null = null
   
   private resolveResourcesPath(): string {
     const candidate = app.isPackaged
@@ -320,23 +323,83 @@ class CloneService {
     return { success: true, data: toneGuide }
   }
 
-  private async runLlm(prompt: string): Promise<string> {
+  private async ensureLlmModel(): Promise<{ model: any; context: any; error?: string }> {
     const modelPath = this.configService.get('llmModelPath')
     if (!modelPath) {
-      return 'LLM 未配置，请设置 llmModelPath'
+      return { model: null, context: null, error: 'LLM 未配置，请设置 llmModelPath' }
     }
 
+    // 如果模型路径改变，需要重新加载
+    if (this.llmModelPath !== modelPath) {
+      await this.releaseLlmModel()
+      this.llmModelPath = modelPath
+    }
+
+    // 如果模型已加载，直接返回
+    if (this.llmModel && this.llmContext) {
+      return { model: this.llmModel, context: this.llmContext }
+    }
+
+    // 加载模型
     const llama = await import('node-llama-cpp').catch(() => null)
     if (!llama) {
-      return 'node-llama-cpp 未安装'
+      return { model: null, context: null, error: 'node-llama-cpp 未安装' }
     }
 
-    const { LlamaModel, LlamaContext, LlamaChatSession } = llama as any
-    const model = new LlamaModel({ modelPath })
-    const context = new LlamaContext({ model })
-    const session = new LlamaChatSession({ context })
-    const result = await session.prompt(prompt)
-    return typeof result === 'string' ? result : String(result)
+    try {
+      const { LlamaModel, LlamaContext } = llama as any
+      this.llmModel = new LlamaModel({ modelPath })
+      this.llmContext = new LlamaContext({ model: this.llmModel })
+      return { model: this.llmModel, context: this.llmContext }
+    } catch (err) {
+      await this.releaseLlmModel()
+      return { model: null, context: null, error: `模型加载失败: ${String(err)}` }
+    }
+  }
+
+  private async releaseLlmModel(): Promise<void> {
+    try {
+      if (this.llmContext) {
+        // LlamaContext 可能需要显式释放
+        if (typeof this.llmContext.dispose === 'function') {
+          this.llmContext.dispose()
+        }
+        this.llmContext = null
+      }
+      if (this.llmModel) {
+        // LlamaModel 可能需要显式释放
+        if (typeof this.llmModel.dispose === 'function') {
+          this.llmModel.dispose()
+        }
+        this.llmModel = null
+      }
+      this.llmModelPath = null
+    } catch (err) {
+      // 忽略释放错误
+      console.error('释放 LLM 模型时出错:', err)
+    }
+  }
+
+  private async runLlm(prompt: string): Promise<string> {
+    const { model, context, error } = await this.ensureLlmModel()
+    if (error || !model || !context) {
+      return error || '模型加载失败'
+    }
+
+    try {
+      const llama = await import('node-llama-cpp').catch(() => null)
+      if (!llama) {
+        return 'node-llama-cpp 未安装'
+      }
+
+      const { LlamaChatSession } = llama as any
+      // 每次对话创建新的 session，但复用 model 和 context
+      const session = new LlamaChatSession({ context })
+      const result = await session.prompt(prompt)
+      return typeof result === 'string' ? result : String(result)
+    } catch (err) {
+      return `LLM 推理失败: ${String(err)}`
+    }
   }
 }
 
