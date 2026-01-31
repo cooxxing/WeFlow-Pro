@@ -119,6 +119,48 @@ export class DbPathService {
   }
 
   /**
+   * 扫描目录名候选（仅包含下划线的文件夹，排除 all_users）
+   */
+  scanWxidCandidates(rootPath: string): WxidInfo[] {
+    const wxids: WxidInfo[] = []
+
+    try {
+      if (existsSync(rootPath)) {
+        const entries = readdirSync(rootPath)
+        for (const entry of entries) {
+          const entryPath = join(rootPath, entry)
+          let stat: ReturnType<typeof statSync>
+          try {
+            stat = statSync(entryPath)
+          } catch {
+            continue
+          }
+
+          if (!stat.isDirectory()) continue
+          const lower = entry.toLowerCase()
+          if (lower === 'all_users') continue
+          if (!entry.includes('_')) continue
+
+          wxids.push({ wxid: entry, modifiedTime: stat.mtimeMs })
+        }
+      }
+
+      if (wxids.length === 0) {
+        const rootName = basename(rootPath)
+        if (rootName.includes('_') && rootName.toLowerCase() !== 'all_users') {
+          const rootStat = statSync(rootPath)
+          wxids.push({ wxid: rootName, modifiedTime: rootStat.mtimeMs })
+        }
+      }
+    } catch { }
+
+    return wxids.sort((a, b) => {
+      if (b.modifiedTime !== a.modifiedTime) return b.modifiedTime - a.modifiedTime
+      return a.wxid.localeCompare(b.wxid)
+    })
+  }
+
+  /**
    * 扫描 wxid 列表
    */
   scanWxids(rootPath: string): WxidInfo[] {

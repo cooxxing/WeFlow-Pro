@@ -674,6 +674,10 @@ function registerIpcHandlers() {
     return dbPathService.scanWxids(rootPath)
   })
 
+  ipcMain.handle('dbpath:scanWxidCandidates', async (_, rootPath: string) => {
+    return dbPathService.scanWxidCandidates(rootPath)
+  })
+
   ipcMain.handle('dbpath:getDefault', async () => {
     return dbPathService.getDefaultPath()
   })

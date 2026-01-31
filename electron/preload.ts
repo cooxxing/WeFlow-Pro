@@ -71,6 +71,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dbPath: {
     autoDetect: () => ipcRenderer.invoke('dbpath:autoDetect'),
     scanWxids: (rootPath: string) => ipcRenderer.invoke('dbpath:scanWxids', rootPath),
+    scanWxidCandidates: (rootPath: string) => ipcRenderer.invoke('dbpath:scanWxidCandidates', rootPath),
     getDefault: () => ipcRenderer.invoke('dbpath:getDefault')
   },
 

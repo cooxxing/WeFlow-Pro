@@ -1,6 +1,6 @@
 {
   "name": "weflow",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "WeFlow",
   "main": "dist-electron/main.js",
   "author": "cc",

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../stores/appStore'
 import { dialog } from '../services/ipc'
@@ -35,6 +35,8 @@ function WelcomePage({ standalone = false }: WelcomePageProps) {
   const [cachePath, setCachePath] = useState('')
   const [wxid, setWxid] = useState('')
   const [wxidOptions, setWxidOptions] = useState<Array<{ wxid: string; modifiedTime: number }>>([])
+  const [showWxidSelect, setShowWxidSelect] = useState(false)
+  const wxidSelectRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
   const [isConnecting, setIsConnecting] = useState(false)
   const [isDetectingPath, setIsDetectingPath] = useState(false)
@@ -127,7 +129,21 @@ function WelcomePage({ standalone = false }: WelcomePageProps) {
   useEffect(() => {
     setWxidOptions([])
     setWxid('')
+    setShowWxidSelect(false)
   }, [dbPath])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!showWxidSelect) return
+      const target = event.target as Node
+      if (wxidSelectRef.current && !wxidSelectRef.current.contains(target)) {
+        setShowWxidSelect(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showWxidSelect])
 
   const currentStep = steps[stepIndex]
   const rootClassName = `welcome-page${isClosing ? ' is-closing' : ''}${standalone ? ' is-standalone' : ''}`
@@ -212,6 +228,28 @@ function WelcomePage({ standalone = false }: WelcomePageProps) {
       }
     } catch (e) {
       if (!silent) setError(`扫描失败: ${e}`)
+    } finally {
+      setIsScanningWxid(false)
+    }
+  }
+
+  const handleScanWxidCandidates = async () => {
+    if (!dbPath) {
+      setError('请先选择数据库目录')
+      return
+    }
+    if (isScanningWxid) return
+    setIsScanningWxid(true)
+    setError('')
+    try {
+      const wxids = await window.electronAPI.dbPath.scanWxidCandidates(dbPath)
+      setWxidOptions(wxids)
+      setShowWxidSelect(true)
+      if (!wxids.length) {
+        setError('未检测到可用的账号目录，请检查路径')
+      }
+    } catch (e) {
+      setError(`扫描失败: ${e}`)
     } finally {
       setIsScanningWxid(false)
     }
@@ -556,14 +594,35 @@ function WelcomePage({ standalone = false }: WelcomePageProps) {
             {currentStep.id === 'key' && (
               <div className="form-group">
                 <label className="field-label">微信账号 (Wxid)</label>
-                <input
-                  type="text"
-                  className="field-input"
-                  placeholder="等待获取..."
-                  value={wxid}
-                  readOnly
-                  onChange={(e) => setWxid(e.target.value)}
-                />
+                <div className="wxid-select" ref={wxidSelectRef}>
+                  <input
+                    type="text"
+                    className="field-input"
+                    placeholder="点击选择..."
+                    value={wxid}
+                    readOnly
+                    onClick={handleScanWxidCandidates}
+                    onChange={(e) => setWxid(e.target.value)}
+                  />
+                  {showWxidSelect && wxidOptions.length > 0 && (
+                    <div className="wxid-dropdown">
+                      {wxidOptions.map((opt) => (
+                        <button
+                          key={opt.wxid}
+                          type="button"
+                          className={`wxid-option ${opt.wxid === wxid ? 'active' : ''}`}
+                          onClick={() => {
+                            setWxid(opt.wxid)
+                            setShowWxidSelect(false)
+                          }}
+                        >
+                          <span className="wxid-name">{opt.wxid}</span>
+                          <span className="wxid-time">{formatModifiedTime(opt.modifiedTime)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
                 <label className="field-label mt-4">解密密钥</label>
                 <div className="field-with-toggle">
@@ -733,4 +792,3 @@ function WelcomePage({ standalone = false }: WelcomePageProps) {
 }
 
 export default WelcomePage
-

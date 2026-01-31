@@ -42,6 +42,7 @@ export interface ElectronAPI {
   dbPath: {
     autoDetect: () => Promise<{ success: boolean; path?: string; error?: string }>
     scanWxids: (rootPath: string) => Promise<WxidInfo[]>
+    scanWxidCandidates: (rootPath: string) => Promise<WxidInfo[]>
     getDefault: () => Promise<string>
   }
   wcdb: {

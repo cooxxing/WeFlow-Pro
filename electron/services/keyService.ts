@@ -451,7 +451,7 @@ export class KeyService {
     return false
   }
 
-  private async closeWeChatWindows(timeoutMs = 8000): Promise<boolean> {
+  private async closeWeChatWindows(): Promise<boolean> {
     if (!this.ensureUser32()) return false
     let requested = false
 
@@ -473,13 +473,15 @@ export class KeyService {
     this.EnumWindows(enumWindowsCallback, 0)
     this.koffi.unregister(enumWindowsCallback)
 
-    if (!requested) return true
-    return await this.waitForWeChatExit(timeoutMs)
+    return requested
   }
 
   private async killWeChatProcesses(): Promise<boolean> {
-    const gracefulOk = await this.closeWeChatWindows(8000)
-    if (gracefulOk) return true
+    const requested = await this.closeWeChatWindows()
+    if (requested) {
+      const gracefulOk = await this.waitForWeChatExit(1500)
+      if (gracefulOk) return true
+    }
 
     try {
       await execFileAsync('taskkill', ['/F', '/T', '/IM', 'Weixin.exe'])
@@ -490,6 +492,7 @@ export class KeyService {
 
     return await this.waitForWeChatExit(5000)
   }
+
 
   // --- Window Detection ---
 
