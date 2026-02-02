@@ -9,6 +9,9 @@ export interface ChatSession {
   lastMsgType: number
   displayName?: string
   avatarUrl?: string
+  lastMsgSender?: string
+  lastSenderDisplayName?: string
+  selfWxid?: string // Helper field to avoid extra API calls
 }
 
 // 联系人

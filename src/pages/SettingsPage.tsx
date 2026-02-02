@@ -9,14 +9,16 @@ import {
   Eye, EyeOff, FolderSearch, FolderOpen, Search, Copy,
   RotateCcw, Trash2, Plug, Check, Sun, Moon,
   Palette, Database, Download, HardDrive, Info, RefreshCw, ChevronDown, Mic,
-  ShieldCheck, Fingerprint, Lock, KeyRound
+  ShieldCheck, Fingerprint, Lock, KeyRound, Bell
 } from 'lucide-react'
+import { Avatar } from '../components/Avatar'
 import './SettingsPage.scss'
 
-type SettingsTab = 'appearance' | 'database' | 'whisper' | 'export' | 'cache' | 'security' | 'about'
+type SettingsTab = 'appearance' | 'notification' | 'database' | 'whisper' | 'export' | 'cache' | 'security' | 'about'
 
 const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: 'appearance', label: '外观', icon: Palette },
+  { id: 'notification', label: '通知', icon: Bell },
   { id: 'database', label: '数据库连接', icon: Database },
   { id: 'whisper', label: '语音识别模型', icon: Mic },
   { id: 'export', label: '导出', icon: Download },
@@ -24,6 +26,7 @@ const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: 'security', label: '安全', icon: ShieldCheck },
   { id: 'about', label: '关于', icon: Info }
 ]
+
 
 interface WxidOption {
   wxid: string
@@ -82,6 +85,18 @@ function SettingsPage() {
   const [exportDefaultVoiceAsText, setExportDefaultVoiceAsText] = useState(true)
   const [exportDefaultExcelCompactColumns, setExportDefaultExcelCompactColumns] = useState(true)
   const [exportDefaultConcurrency, setExportDefaultConcurrency] = useState(2)
+
+  const [notificationEnabled, setNotificationEnabled] = useState(true)
+  const [notificationPosition, setNotificationPosition] = useState<'top-right' | 'top-left' | 'bottom-right' | 'bottom-left'>('top-right')
+  const [notificationFilterMode, setNotificationFilterMode] = useState<'all' | 'whitelist' | 'blacklist'>('all')
+  const [notificationFilterList, setNotificationFilterList] = useState<string[]>([])
+  const [filterSearchKeyword, setFilterSearchKeyword] = useState('')
+  const [filterModeDropdownOpen, setFilterModeDropdownOpen] = useState(false)
+  const [positionDropdownOpen, setPositionDropdownOpen] = useState(false)
+
+
+
+
 
   const [isLoading, setIsLoadingState] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -167,6 +182,24 @@ function SettingsPage() {
     }
   }, [])
 
+  // 点击外部关闭自定义下拉框
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('.custom-select')) {
+        setFilterModeDropdownOpen(false)
+        setPositionDropdownOpen(false)
+      }
+    }
+    if (filterModeDropdownOpen || positionDropdownOpen) {
+      document.addEventListener('click', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('click', handleClickOutside)
+    }
+  }, [filterModeDropdownOpen, positionDropdownOpen])
+
+
   const loadConfig = async () => {
     try {
       const savedKey = await configService.getDecryptKey()
@@ -187,6 +220,11 @@ function SettingsPage() {
       const savedExportDefaultVoiceAsText = await configService.getExportDefaultVoiceAsText()
       const savedExportDefaultExcelCompactColumns = await configService.getExportDefaultExcelCompactColumns()
       const savedExportDefaultConcurrency = await configService.getExportDefaultConcurrency()
+
+      const savedNotificationEnabled = await configService.getNotificationEnabled()
+      const savedNotificationPosition = await configService.getNotificationPosition()
+      const savedNotificationFilterMode = await configService.getNotificationFilterMode()
+      const savedNotificationFilterList = await configService.getNotificationFilterList()
 
       const savedAuthEnabled = await configService.getAuthEnabled()
       const savedAuthUseHello = await configService.getAuthUseHello()
@@ -220,6 +258,11 @@ function SettingsPage() {
       setExportDefaultVoiceAsText(savedExportDefaultVoiceAsText ?? true)
       setExportDefaultExcelCompactColumns(savedExportDefaultExcelCompactColumns ?? true)
       setExportDefaultConcurrency(savedExportDefaultConcurrency ?? 2)
+
+      setNotificationEnabled(savedNotificationEnabled)
+      setNotificationPosition(savedNotificationPosition)
+      setNotificationFilterMode(savedNotificationFilterMode)
+      setNotificationFilterList(savedNotificationFilterList)
 
       // 如果语言列表为空，保存默认值
       if (!savedTranscribeLanguages || savedTranscribeLanguages.length === 0) {
@@ -841,6 +884,245 @@ function SettingsPage() {
       </div>
     </div>
   )
+
+  const renderNotificationTab = () => {
+    const { sessions } = useChatStore.getState()
+
+    // 获取已过滤会话的信息
+    const getSessionInfo = (username: string) => {
+      const session = sessions.find(s => s.username === username)
+      return {
+        displayName: session?.displayName || username,
+        avatarUrl: session?.avatarUrl || ''
+      }
+    }
+
+    // 添加会话到过滤列表
+    const handleAddToFilterList = async (username: string) => {
+      if (notificationFilterList.includes(username)) return
+      const newList = [...notificationFilterList, username]
+      setNotificationFilterList(newList)
+      await configService.setNotificationFilterList(newList)
+      showMessage('已添加到过滤列表', true)
+    }
+
+    // 从过滤列表移除会话
+    const handleRemoveFromFilterList = async (username: string) => {
+      const newList = notificationFilterList.filter(u => u !== username)
+      setNotificationFilterList(newList)
+      await configService.setNotificationFilterList(newList)
+      showMessage('已从过滤列表移除', true)
+    }
+
+    // 过滤掉已在列表中的会话，并根据搜索关键字过滤
+    const availableSessions = sessions.filter(s => {
+      if (notificationFilterList.includes(s.username)) return false
+      if (filterSearchKeyword) {
+        const keyword = filterSearchKeyword.toLowerCase()
+        const displayName = (s.displayName || '').toLowerCase()
+        const username = s.username.toLowerCase()
+        return displayName.includes(keyword) || username.includes(keyword)
+      }
+      return true
+    })
+
+    return (
+      <div className="tab-content">
+        <div className="form-group">
+          <label>新消息通知</label>
+          <span className="form-hint">开启后，收到新消息时将显示桌面弹窗通知</span>
+          <div className="log-toggle-line">
+            <span className="log-status">{notificationEnabled ? '已开启' : '已关闭'}</span>
+            <label className="switch" htmlFor="notification-enabled-toggle">
+              <input
+                id="notification-enabled-toggle"
+                className="switch-input"
+                type="checkbox"
+                checked={notificationEnabled}
+                onChange={async (e) => {
+                  const val = e.target.checked
+                  setNotificationEnabled(val)
+                  await configService.setNotificationEnabled(val)
+                  showMessage(val ? '已开启通知' : '已关闭通知', true)
+                }}
+              />
+              <span className="switch-slider" />
+            </label>
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label>通知显示位置</label>
+          <span className="form-hint">选择通知弹窗在屏幕上的显示位置</span>
+          <div className="custom-select">
+            <div
+              className={`custom-select-trigger ${positionDropdownOpen ? 'open' : ''}`}
+              onClick={() => setPositionDropdownOpen(!positionDropdownOpen)}
+            >
+              <span className="custom-select-value">
+                {notificationPosition === 'top-right' ? '右上角' :
+                  notificationPosition === 'bottom-right' ? '右下角' :
+                    notificationPosition === 'top-left' ? '左上角' : '左下角'}
+              </span>
+              <ChevronDown size={14} className={`custom-select-arrow ${positionDropdownOpen ? 'rotate' : ''}`} />
+            </div>
+            <div className={`custom-select-dropdown ${positionDropdownOpen ? 'open' : ''}`}>
+              {[
+                { value: 'top-right', label: '右上角' },
+                { value: 'bottom-right', label: '右下角' },
+                { value: 'top-left', label: '左上角' },
+                { value: 'bottom-left', label: '左下角' }
+              ].map(option => (
+                <div
+                  key={option.value}
+                  className={`custom-select-option ${notificationPosition === option.value ? 'selected' : ''}`}
+                  onClick={async () => {
+                    const val = option.value as 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left'
+                    setNotificationPosition(val)
+                    setPositionDropdownOpen(false)
+                    await configService.setNotificationPosition(val)
+                    showMessage('通知位置已更新', true)
+                  }}
+                >
+                  {option.label}
+                  {notificationPosition === option.value && <Check size={14} />}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label>会话过滤</label>
+          <span className="form-hint">选择只接收特定会话的通知，或屏蔽特定会话的通知</span>
+          <div className="custom-select">
+            <div
+              className={`custom-select-trigger ${filterModeDropdownOpen ? 'open' : ''}`}
+              onClick={() => setFilterModeDropdownOpen(!filterModeDropdownOpen)}
+            >
+              <span className="custom-select-value">
+                {notificationFilterMode === 'all' ? '接收所有通知' :
+                  notificationFilterMode === 'whitelist' ? '仅接收白名单' : '屏蔽黑名单'}
+              </span>
+              <ChevronDown size={14} className={`custom-select-arrow ${filterModeDropdownOpen ? 'rotate' : ''}`} />
+            </div>
+            <div className={`custom-select-dropdown ${filterModeDropdownOpen ? 'open' : ''}`}>
+              {[
+                { value: 'all', label: '接收所有通知' },
+                { value: 'whitelist', label: '仅接收白名单' },
+                { value: 'blacklist', label: '屏蔽黑名单' }
+              ].map(option => (
+                <div
+                  key={option.value}
+                  className={`custom-select-option ${notificationFilterMode === option.value ? 'selected' : ''}`}
+                  onClick={async () => {
+                    const val = option.value as 'all' | 'whitelist' | 'blacklist'
+                    setNotificationFilterMode(val)
+                    setFilterModeDropdownOpen(false)
+                    await configService.setNotificationFilterMode(val)
+                    showMessage(
+                      val === 'all' ? '已设为接收所有通知' :
+                        val === 'whitelist' ? '已设为仅接收白名单通知' : '已设为屏蔽黑名单通知',
+                      true
+                    )
+                  }}
+                >
+                  {option.label}
+                  {notificationFilterMode === option.value && <Check size={14} />}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {notificationFilterMode !== 'all' && (
+          <div className="form-group">
+            <label>{notificationFilterMode === 'whitelist' ? '白名单会话' : '黑名单会话'}</label>
+            <span className="form-hint">
+              {notificationFilterMode === 'whitelist'
+                ? '点击左侧会话添加到白名单，点击右侧会话从白名单移除'
+                : '点击左侧会话添加到黑名单，点击右侧会话从黑名单移除'}
+            </span>
+
+            <div className="notification-filter-container">
+              {/* 可选会话列表 */}
+              <div className="filter-panel">
+                <div className="filter-panel-header">
+                  <span>可选会话</span>
+                  <div className="filter-search-box">
+                    <Search size={14} />
+                    <input
+                      type="text"
+                      placeholder="搜索会话..."
+                      value={filterSearchKeyword}
+                      onChange={(e) => setFilterSearchKeyword(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="filter-panel-list">
+                  {availableSessions.length > 0 ? (
+                    availableSessions.map(session => (
+                      <div
+                        key={session.username}
+                        className="filter-panel-item"
+                        onClick={() => handleAddToFilterList(session.username)}
+                      >
+                        <Avatar
+                          src={session.avatarUrl}
+                          name={session.displayName || session.username}
+                          size={28}
+                        />
+                        <span className="filter-item-name">{session.displayName || session.username}</span>
+                        <span className="filter-item-action">+</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="filter-panel-empty">
+                      {filterSearchKeyword ? '没有匹配的会话' : '暂无可添加的会话'}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 已选会话列表 */}
+              <div className="filter-panel">
+                <div className="filter-panel-header">
+                  <span>{notificationFilterMode === 'whitelist' ? '白名单' : '黑名单'}</span>
+                  {notificationFilterList.length > 0 && (
+                    <span className="filter-panel-count">{notificationFilterList.length}</span>
+                  )}
+                </div>
+                <div className="filter-panel-list">
+                  {notificationFilterList.length > 0 ? (
+                    notificationFilterList.map(username => {
+                      const info = getSessionInfo(username)
+                      return (
+                        <div
+                          key={username}
+                          className="filter-panel-item selected"
+                          onClick={() => handleRemoveFromFilterList(username)}
+                        >
+                          <Avatar
+                            src={info.avatarUrl}
+                            name={info.displayName}
+                            size={28}
+                          />
+                          <span className="filter-item-name">{info.displayName}</span>
+                          <span className="filter-item-action">×</span>
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <div className="filter-panel-empty">尚未添加任何会话</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   const renderDatabaseTab = () => (
     <div className="tab-content">
@@ -1674,6 +1956,7 @@ function SettingsPage() {
 
       <div className="settings-body">
         {activeTab === 'appearance' && renderAppearanceTab()}
+        {activeTab === 'notification' && renderNotificationTab()}
         {activeTab === 'database' && renderDatabaseTab()}
         {activeTab === 'whisper' && renderWhisperTab()}
         {activeTab === 'export' && renderExportTab()}

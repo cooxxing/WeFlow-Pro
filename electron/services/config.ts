@@ -36,12 +36,30 @@ interface ConfigSchema {
 
   // 更新相关
   ignoredUpdateVersion: string
+
+  // 通知
+  notificationEnabled: boolean
+  notificationPosition: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left'
+  notificationFilterMode: 'all' | 'whitelist' | 'blacklist'
+  notificationFilterList: string[]
 }
 
 export class ConfigService {
-  private store: Store<ConfigSchema>
+  private static instance: ConfigService
+  private store!: Store<ConfigSchema>
+
+  static getInstance(): ConfigService {
+    if (!ConfigService.instance) {
+      ConfigService.instance = new ConfigService()
+    }
+    return ConfigService.instance
+  }
 
   constructor() {
+    if (ConfigService.instance) {
+      return ConfigService.instance
+    }
+    ConfigService.instance = this
     this.store = new Store<ConfigSchema>({
       name: 'WeFlow-config',
       defaults: {
@@ -72,7 +90,11 @@ export class ConfigService {
         authPassword: '',
         authUseHello: false,
 
-        ignoredUpdateVersion: ''
+        ignoredUpdateVersion: '',
+        notificationEnabled: true,
+        notificationPosition: 'top-right',
+        notificationFilterMode: 'all',
+        notificationFilterList: []
       }
     })
   }

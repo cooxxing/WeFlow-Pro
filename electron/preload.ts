@@ -9,6 +9,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clear: () => ipcRenderer.invoke('config:clear')
   },
 
+  // 通知
+  notification: {
+    show: (data: any) => ipcRenderer.invoke('notification:show', data),
+    close: () => ipcRenderer.invoke('notification:close'),
+    click: (sessionId: string) => ipcRenderer.send('notification-clicked', sessionId),
+    ready: () => ipcRenderer.send('notification:ready'),
+    resize: (width: number, height: number) => ipcRenderer.send('notification:resize', { width, height }),
+    onShow: (callback: (event: any, data: any) => void) => {
+      ipcRenderer.on('notification:show', callback)
+      return () => ipcRenderer.removeAllListeners('notification:show')
+    }
+  },
+
   // 认证
   auth: {
     hello: (message?: string) => ipcRenderer.invoke('auth:hello', message)
@@ -48,7 +61,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 日志
   log: {
     getPath: () => ipcRenderer.invoke('log:getPath'),
-    read: () => ipcRenderer.invoke('log:read')
+    read: () => ipcRenderer.invoke('log:read'),
+    debug: (data: any) => ipcRenderer.send('log:debug', data)
   },
 
   // 窗口控制

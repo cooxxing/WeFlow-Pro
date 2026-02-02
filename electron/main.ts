@@ -21,6 +21,7 @@ import { videoService } from './services/videoService'
 import { snsService } from './services/snsService'
 import { contactExportService } from './services/contactExportService'
 import { windowsHelloService } from './services/windowsHelloService'
+import { registerNotificationHandlers, showNotification } from './windows/notificationWindow'
 
 
 // 配置自动更新
@@ -138,6 +139,14 @@ function createWindow(options: { autoShow?: boolean } = {}) {
   } else {
     win.loadFile(join(__dirname, '../dist/index.html'))
   }
+
+  // Handle notification click navigation
+  ipcMain.on('notification-clicked', (_, sessionId) => {
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    win.webContents.send('navigate-to-session', sessionId)
+  })
 
   // 拦截请求，修改 Referer 和 User-Agent 以通过微信 CDN 鉴权
   session.defaultSession.webRequest.onBeforeSendHeaders(
@@ -366,8 +375,6 @@ function createVideoPlayerWindow(videoPath: string, videoWidth?: number, videoHe
       hash: `/video-player-window?${videoParam}`
     })
   }
-
-  return win
 }
 
 /**
@@ -499,6 +506,7 @@ function showMainWindow() {
 
 // 注册 IPC 处理器
 function registerIpcHandlers() {
+  registerNotificationHandlers()
   // 配置相关
   ipcMain.handle('config:get', async (_, key: string) => {
     return configService?.get(key as any)

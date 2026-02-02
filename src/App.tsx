@@ -21,6 +21,7 @@ import ImageWindow from './pages/ImageWindow'
 import SnsPage from './pages/SnsPage'
 import ContactsPage from './pages/ContactsPage'
 import ChatHistoryPage from './pages/ChatHistoryPage'
+import NotificationWindow from './pages/NotificationWindow'
 
 import { useAppStore } from './stores/appStore'
 import { themes, useThemeStore, type ThemeId } from './stores/themeStore'
@@ -31,10 +32,12 @@ import './App.scss'
 import UpdateDialog from './components/UpdateDialog'
 import UpdateProgressCapsule from './components/UpdateProgressCapsule'
 import LockScreen from './components/LockScreen'
+import { GlobalSessionMonitor } from './components/GlobalSessionMonitor'
 
 function App() {
   const navigate = useNavigate()
   const location = useLocation()
+
   const {
     setDbConnected,
     updateInfo,
@@ -55,6 +58,7 @@ function App() {
   const isOnboardingWindow = location.pathname === '/onboarding-window'
   const isVideoPlayerWindow = location.pathname === '/video-player-window'
   const isChatHistoryWindow = location.pathname.startsWith('/chat-history/')
+  const isNotificationWindow = location.pathname === '/notification-window'
   const [themeHydrated, setThemeHydrated] = useState(false)
 
   // 锁定状态
@@ -74,7 +78,7 @@ function App() {
     const body = document.body
     const appRoot = document.getElementById('app')
 
-    if (isOnboardingWindow) {
+    if (isOnboardingWindow || isNotificationWindow) {
       root.style.background = 'transparent'
       body.style.background = 'transparent'
       body.style.overflow = 'hidden'
@@ -100,10 +104,10 @@ function App() {
 
     // 更新窗口控件颜色以适配主题
     const symbolColor = themeMode === 'dark' ? '#ffffff' : '#1a1a1a'
-    if (!isOnboardingWindow) {
+    if (!isOnboardingWindow && !isNotificationWindow) {
       window.electronAPI.window.setTitleBarOverlay({ symbolColor })
     }
-  }, [currentTheme, themeMode, isOnboardingWindow])
+  }, [currentTheme, themeMode, isOnboardingWindow, isNotificationWindow])
 
   // 读取已保存的主题设置
   useEffect(() => {
@@ -173,21 +177,23 @@ function App() {
 
   // 监听启动时的更新通知
   useEffect(() => {
-    const removeUpdateListener = window.electronAPI.app.onUpdateAvailable?.((info: any) => {
+    if (isNotificationWindow) return // Skip updates in notification window
+
+    const removeUpdateListener = window.electronAPI?.app?.onUpdateAvailable?.((info: any) => {
       // 发现新版本时自动打开更新弹窗
       if (info) {
         setUpdateInfo({ ...info, hasUpdate: true })
         setShowUpdateDialog(true)
       }
     })
-    const removeProgressListener = window.electronAPI.app.onDownloadProgress?.((progress: any) => {
+    const removeProgressListener = window.electronAPI?.app?.onDownloadProgress?.((progress: any) => {
       setDownloadProgress(progress)
     })
     return () => {
       removeUpdateListener?.()
       removeProgressListener?.()
     }
-  }, [setUpdateInfo, setDownloadProgress, setShowUpdateDialog])
+  }, [setUpdateInfo, setDownloadProgress, setShowUpdateDialog, isNotificationWindow])
 
   const handleUpdateNow = async () => {
     setShowUpdateDialog(false)
@@ -242,18 +248,18 @@ function App() {
           if (!onboardingDone) {
             await configService.setOnboardingDone(true)
           }
-          
+
           const result = await window.electronAPI.chat.connect()
 
           if (result.success) {
-            
+
             setDbConnected(true, dbPath)
             // 如果当前在欢迎页，跳转到首页
             if (window.location.hash === '#/' || window.location.hash === '') {
               navigate('/home')
             }
           } else {
-            
+
             // 如果错误信息包含 VC++ 或 DLL 相关内容，不清除配置，只提示用户
             // 其他错误可能需要重新配置
             const errorMsg = result.error || ''
@@ -330,6 +336,11 @@ function App() {
     return <ChatHistoryPage />
   }
 
+  // 独立通知窗口
+  if (isNotificationWindow) {
+    return <NotificationWindow />
+  }
+
   // 主窗口 - 完整布局
   return (
     <div className="app-container">
@@ -344,6 +355,9 @@ function App() {
 
       {/* 全局悬浮进度胶囊 (处理：新版本提示、下载进度、错误提示) */}
       <UpdateProgressCapsule />
+
+      {/* 全局会话监听与通知 */}
+      <GlobalSessionMonitor />
 
       {/* 用户协议弹窗 */}
       {showAgreement && !agreementLoading && (

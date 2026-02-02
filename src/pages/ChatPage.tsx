@@ -306,18 +306,7 @@ function ChatPage(_props: ChatPageProps) {
         const nextSessions = options?.silent ? mergeSessions(sessionsArray) : sessionsArray
         // 确保 nextSessions 也是数组
         if (Array.isArray(nextSessions)) {
-          // 【核心优化】检查当前会话是否有更新（通过 lastTimestamp 对比）
-          const currentId = currentSessionRef.current
-          if (currentId) {
-            const newSession = nextSessions.find(s => s.username === currentId)
-            const oldSession = sessionsRef.current.find(s => s.username === currentId)
 
-            // 如果会话存在且时间戳变大（有新消息）或者之前没有该会话
-            if (newSession && (!oldSession || newSession.lastTimestamp > oldSession.lastTimestamp)) {
-              console.log(`[Frontend] Detected update for current session ${currentId}, refreshing messages...`)
-              void handleIncrementalRefresh()
-            }
-          }
 
           setSessions(nextSessions)
           sessionsRef.current = nextSessions
@@ -657,30 +646,7 @@ function ChatPage(_props: ChatPageProps) {
     }
   }
 
-  // 监听数据库变更实时刷新
-  useEffect(() => {
-    const handleDbChange = (_event: any, data: { type: string; json: string }) => {
-      try {
-        const payload = JSON.parse(data.json)
-        const tableName = payload.table
 
-        // 会话列表更新（主要靠这个触发，因为 wcdb_api 已经只监控 session 了）
-        if (tableName === 'Session' || tableName === 'session') {
-          void loadSessions({ silent: true })
-        }
-      } catch (e) {
-        console.error('解析数据库变更通知失败:', e)
-      }
-    }
-
-    if (window.electronAPI.chat.onWcdbChange) {
-      const removeListener = window.electronAPI.chat.onWcdbChange(handleDbChange)
-      return () => {
-        removeListener()
-      }
-    }
-    return () => { }
-  }, [loadSessions, handleRefreshMessages])
 
   // 加载消息
   const loadMessages = async (sessionId: string, offset = 0, startTime = 0, endTime = 0) => {

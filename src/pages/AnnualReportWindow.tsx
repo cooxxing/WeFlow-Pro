@@ -1017,14 +1017,14 @@ function AnnualReportWindow() {
           {midnightKing && (
             <section className="section" ref={sectionRefs.midnightKing}>
               <div className="label-text">深夜好友</div>
-              <h2 className="hero-title">当城市睡去</h2>
-              <p className="hero-desc">这一年你留下了</p>
+              <h2 className="hero-title">月光下的你</h2>
+              <p className="hero-desc">在这一年你留下了</p>
               <div className="big-stat">
                 <span className="stat-num">{midnightKing.count}</span>
                 <span className="stat-unit">条深夜的消息</span>
               </div>
               <p className="hero-desc">
-                其中 <span className="hl">{midnightKing.displayName}</span> 常常在深夜中陪着你。
+                其中 <span className="hl">{midnightKing.displayName}</span> 常常在深夜中陪着你胡思乱想。
                 <br />你和Ta的对话占你深夜期间聊天的 <span className="gold">{midnightKing.percentage}%</span>。
               </p>
             </section>

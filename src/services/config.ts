@@ -38,7 +38,13 @@ export const CONFIG_KEYS = {
   AUTH_USE_HELLO: 'authUseHello',
 
   // 更新
-  IGNORED_UPDATE_VERSION: 'ignoredUpdateVersion'
+  IGNORED_UPDATE_VERSION: 'ignoredUpdateVersion',
+
+  // 通知
+  NOTIFICATION_ENABLED: 'notificationEnabled',
+  NOTIFICATION_POSITION: 'notificationPosition',
+  NOTIFICATION_FILTER_MODE: 'notificationFilterMode',
+  NOTIFICATION_FILTER_LIST: 'notificationFilterList'
 } as const
 
 export interface WxidConfig {
@@ -416,3 +422,46 @@ export async function setIgnoredUpdateVersion(version: string): Promise<void> {
   await config.set(CONFIG_KEYS.IGNORED_UPDATE_VERSION, version)
 }
 
+// 获取通知开关
+export async function getNotificationEnabled(): Promise<boolean> {
+  const value = await config.get(CONFIG_KEYS.NOTIFICATION_ENABLED)
+  return value !== false // 默认为 true
+}
+
+// 设置通知开关
+export async function setNotificationEnabled(enabled: boolean): Promise<void> {
+  await config.set(CONFIG_KEYS.NOTIFICATION_ENABLED, enabled)
+}
+
+// 获取通知位置
+export async function getNotificationPosition(): Promise<'top-right' | 'top-left' | 'bottom-right' | 'bottom-left'> {
+  const value = await config.get(CONFIG_KEYS.NOTIFICATION_POSITION)
+  return (value as any) || 'top-right'
+}
+
+// 设置通知位置
+export async function setNotificationPosition(position: string): Promise<void> {
+  await config.set(CONFIG_KEYS.NOTIFICATION_POSITION, position)
+}
+
+// 获取通知过滤模式
+export async function getNotificationFilterMode(): Promise<'all' | 'whitelist' | 'blacklist'> {
+  const value = await config.get(CONFIG_KEYS.NOTIFICATION_FILTER_MODE)
+  return (value as any) || 'all'
+}
+
+// 设置通知过滤模式
+export async function setNotificationFilterMode(mode: 'all' | 'whitelist' | 'blacklist'): Promise<void> {
+  await config.set(CONFIG_KEYS.NOTIFICATION_FILTER_MODE, mode)
+}
+
+// 获取通知过滤列表
+export async function getNotificationFilterList(): Promise<string[]> {
+  const value = await config.get(CONFIG_KEYS.NOTIFICATION_FILTER_LIST)
+  return Array.isArray(value) ? value : []
+}
+
+// 设置通知过滤列表
+export async function setNotificationFilterList(list: string[]): Promise<void> {
+  await config.set(CONFIG_KEYS.NOTIFICATION_FILTER_LIST, list)
+}

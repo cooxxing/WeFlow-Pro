@@ -30,6 +30,9 @@ export interface ChatSession {
   lastMsgType: number
   displayName?: string
   avatarUrl?: string
+  lastMsgSender?: string
+  lastSenderDisplayName?: string
+  selfWxid?: string
 }
 
 export interface Message {
@@ -287,6 +290,7 @@ class ChatService {
       // 转换为 ChatSession（先加载缓存，但不等待数据库查询）
       const sessions: ChatSession[] = []
       const now = Date.now()
+      const myWxid = this.configService.get('myWxid')
 
       for (const row of rows) {
         const username =
@@ -340,7 +344,10 @@ class ChatService {
           lastTimestamp: lastTs,
           lastMsgType,
           displayName,
-          avatarUrl
+          avatarUrl,
+          lastMsgSender: row.last_msg_sender, // 数据库返回字段
+          lastSenderDisplayName: row.last_sender_display_name, // 数据库返回字段
+          selfWxid: myWxid
         })
       }
 
