@@ -64,6 +64,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('window:openVideoPlayerWindow', videoPath, videoWidth, videoHeight),
     resizeToFitVideo: (videoWidth: number, videoHeight: number) =>
       ipcRenderer.invoke('window:resizeToFitVideo', videoWidth, videoHeight),
+    openImageViewerWindow: (imagePath: string) =>
+      ipcRenderer.invoke('window:openImageViewerWindow', imagePath),
     openChatHistoryWindow: (sessionId: string, messageId: number) =>
       ipcRenderer.invoke('window:openChatHistoryWindow', sessionId, messageId)
   },

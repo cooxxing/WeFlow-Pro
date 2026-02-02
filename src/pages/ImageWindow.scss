@@ -1,0 +1,99 @@
+.image-window-container {
+    width: 100vw;
+    height: 100vh;
+    background-color: var(--bg-primary);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+
+    .title-bar {
+        height: 40px;
+        min-height: 40px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border-color);
+        padding-right: 140px; // 为原生窗口控件留出空间
+
+        .window-drag-area {
+            flex: 1;
+            height: 100%;
+            -webkit-app-region: drag;
+        }
+
+        .title-bar-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            -webkit-app-region: no-drag;
+            margin-right: 16px;
+
+            button {
+                background: transparent;
+                border: none;
+                color: var(--text-secondary);
+                cursor: pointer;
+                padding: 6px;
+                border-radius: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s;
+
+                &:hover {
+                    background: var(--bg-tertiary);
+                    color: var(--text-primary);
+                }
+            }
+
+            .scale-text {
+                min-width: 50px;
+                text-align: center;
+                color: var(--text-secondary);
+                font-size: 12px;
+                font-variant-numeric: tabular-nums;
+            }
+
+            .divider {
+                width: 1px;
+                height: 14px;
+                background: var(--border-color);
+                margin: 0 4px;
+            }
+        }
+    }
+
+    .image-viewport {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        position: relative;
+        cursor: grab;
+
+        &:active {
+            cursor: grabbing;
+        }
+
+        img {
+            max-width: none;
+            max-height: none;
+            object-fit: contain;
+            will-change: transform;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            pointer-events: auto;
+        }
+    }
+}
+
+.image-window-empty {
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    background-color: var(--bg-primary);
+}

@@ -17,6 +17,7 @@ import GroupAnalyticsPage from './pages/GroupAnalyticsPage'
 import SettingsPage from './pages/SettingsPage'
 import ExportPage from './pages/ExportPage'
 import VideoWindow from './pages/VideoWindow'
+import ImageWindow from './pages/ImageWindow'
 import SnsPage from './pages/SnsPage'
 import ContactsPage from './pages/ContactsPage'
 import ChatHistoryPage from './pages/ChatHistoryPage'
@@ -316,6 +317,12 @@ function App() {
   // 独立视频播放窗口
   if (isVideoPlayerWindow) {
     return <VideoWindow />
+  }
+
+  // 独立图片查看窗口
+  const isImageViewerWindow = location.pathname === '/image-viewer-window'
+  if (isImageViewerWindow) {
+    return <ImageWindow />
   }
 
   // 独立聊天记录窗口

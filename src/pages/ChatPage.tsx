@@ -4,7 +4,6 @@ import { createPortal } from 'react-dom'
 import { useChatStore } from '../stores/chatStore'
 import type { ChatSession, Message } from '../types/models'
 import { getEmojiPath } from 'wechat-emojis'
-import { ImagePreview } from '../components/ImagePreview'
 import { VoiceTranscribeDialog } from '../components/VoiceTranscribeDialog'
 import { AnimatedStreamingText } from '../components/AnimatedStreamingText'
 import JumpToDateDialog from '../components/JumpToDateDialog'
@@ -1630,7 +1629,6 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
   const [voiceTranscriptLoading, setVoiceTranscriptLoading] = useState(false)
   const [voiceTranscriptError, setVoiceTranscriptError] = useState(false)
   const voiceTranscriptRequestedRef = useRef(false)
-  const [showImagePreview, setShowImagePreview] = useState(false)
   const [autoTranscribeVoice, setAutoTranscribeVoice] = useState(true)
   const [voiceCurrentTime, setVoiceCurrentTime] = useState(0)
   const [voiceDuration, setVoiceDuration] = useState(0)
@@ -1996,22 +1994,17 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
   }, [isImage, imageHasUpdate, imageInView, imageCacheKey, triggerForceHd])
 
   useEffect(() => {
-    if (!isImage || !showImagePreview || !imageHasUpdate) return
+    if (!isImage || !imageHasUpdate) return
     if (imageAutoHdTriggered.current === imageCacheKey) return
     imageAutoHdTriggered.current = imageCacheKey
     triggerForceHd()
-  }, [isImage, showImagePreview, imageHasUpdate, imageCacheKey, triggerForceHd])
+  }, [isImage, imageHasUpdate, imageCacheKey, triggerForceHd])
 
   // 更激进：进入视野/打开预览时，无论 hasUpdate 与否都尝试强制高清
   useEffect(() => {
     if (!isImage || !imageInView) return
     triggerForceHd()
   }, [isImage, imageInView, triggerForceHd])
-
-  useEffect(() => {
-    if (!isImage || !showImagePreview) return
-    triggerForceHd()
-  }, [isImage, showImagePreview, triggerForceHd])
 
 
   useEffect(() => {
@@ -2363,15 +2356,12 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
                     if (imageHasUpdate) {
                       void requestImageDecrypt(true, true)
                     }
-                    setShowImagePreview(true)
+                    void window.electronAPI.window.openImageViewerWindow(imageLocalPath)
                   }}
                   onLoad={() => setImageError(false)}
                   onError={() => setImageError(true)}
                 />
               </div>
-              {showImagePreview && (
-                <ImagePreview src={imageLocalPath} onClose={() => setShowImagePreview(false)} />
-              )}
             </>
           )}
         </div>

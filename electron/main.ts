@@ -371,6 +371,66 @@ function createVideoPlayerWindow(videoPath: string, videoWidth?: number, videoHe
 }
 
 /**
+ * 创建独立的图片查看窗口
+ */
+function createImageViewerWindow(imagePath: string) {
+  const isDev = !!process.env.VITE_DEV_SERVER_URL
+  const iconPath = isDev
+    ? join(__dirname, '../public/icon.ico')
+    : join(process.resourcesPath, 'icon.ico')
+
+  const win = new BrowserWindow({
+    width: 900,
+    height: 700,
+    minWidth: 400,
+    minHeight: 300,
+    icon: iconPath,
+    webPreferences: {
+      preload: join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: false // 允许加载本地文件
+    },
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#00000000',
+      symbolColor: '#ffffff',
+      height: 40
+    },
+    show: false,
+    backgroundColor: '#000000',
+    autoHideMenuBar: true
+  })
+
+  win.once('ready-to-show', () => {
+    win.show()
+  })
+
+  const imageParam = `imagePath=${encodeURIComponent(imagePath)}`
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    win.loadURL(`${process.env.VITE_DEV_SERVER_URL}#/image-viewer-window?${imageParam}`)
+
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.key === 'F12' || (input.control && input.shift && input.key === 'I')) {
+        if (win.webContents.isDevToolsOpened()) {
+          win.webContents.closeDevTools()
+        } else {
+          win.webContents.openDevTools()
+        }
+        event.preventDefault()
+      }
+    })
+  } else {
+    win.loadFile(join(__dirname, '../dist/index.html'), {
+      hash: `/image-viewer-window?${imageParam}`
+    })
+  }
+
+  return win
+}
+
+/**
  * 创建独立的聊天记录窗口
  */
 function createChatHistoryWindow(sessionId: string, messageId: number) {
@@ -939,6 +999,11 @@ function registerIpcHandlers() {
   ipcMain.handle('window:openAgreementWindow', async () => {
     createAgreementWindow()
     return true
+  })
+
+  // 打开图片查看窗口
+  ipcMain.handle('window:openImageViewerWindow', (_, imagePath: string) => {
+    createImageViewerWindow(imagePath)
   })
 
   // 完成引导，关闭引导窗口并显示主窗口
