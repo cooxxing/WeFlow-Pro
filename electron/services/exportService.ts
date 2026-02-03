@@ -159,7 +159,7 @@ class ExportService {
     }
     const suffixMatch = trimmed.match(/^(.+)_([a-zA-Z0-9]{4})$/)
     const cleaned = suffixMatch ? suffixMatch[1] : trimmed
-    
+
     return cleaned
   }
 
@@ -1148,11 +1148,11 @@ class ExportService {
       const emojiMd5 = msg.emojiMd5
 
       if (!emojiUrl && !emojiMd5) {
-        
+
         return null
       }
 
-      
+
 
       const key = emojiMd5 || String(msg.localId)
       // 根据 URL 判断扩展名
@@ -3013,6 +3013,165 @@ class ExportService {
     }
   }
 
+  private getVirtualScrollScript(): string {
+    return `
+      class VirtualScroller {
+        constructor(container, list, data, renderItem) {
+          this.container = container;
+          this.list = list;
+          this.data = data;
+          this.renderItem = renderItem;
+          
+          this.rowHeight = 80; // Estimated height
+          this.buffer = 5;
+          this.heightCache = new Map();
+          this.visibleItems = new Set();
+          
+          this.spacer = document.createElement('div');
+          this.spacer.className = 'virtual-scroll-spacer';
+          this.content = document.createElement('div');
+          this.content.className = 'virtual-scroll-content';
+          
+          this.container.appendChild(this.spacer);
+          this.container.appendChild(this.content);
+          
+          this.container.addEventListener('scroll', () => this.onScroll());
+          window.addEventListener('resize', () => this.onScroll());
+          
+          this.updateTotalHeight();
+          this.onScroll();
+        }
+
+        setData(newData) {
+          this.data = newData;
+          this.heightCache.clear();
+          this.content.innerHTML = '';
+          this.container.scrollTop = 0;
+          this.updateTotalHeight();
+          this.onScroll();
+          
+          // Show/Hide empty state
+          if (this.data.length === 0) {
+             this.content.innerHTML = '<div class="empty">暂无消息</div>';
+          }
+        }
+
+        updateTotalHeight() {
+          let total = 0;
+          for (let i = 0; i < this.data.length; i++) {
+            total += this.heightCache.get(i) || this.rowHeight;
+          }
+          this.spacer.style.height = total + 'px';
+        }
+
+        onScroll() {
+          if (this.data.length === 0) return;
+
+          const scrollTop = this.container.scrollTop;
+          const containerHeight = this.container.clientHeight;
+          
+          // Find start index
+          let currentY = 0;
+          let startIndex = 0;
+          for (let i = 0; i < this.data.length; i++) {
+            const h = this.heightCache.get(i) || this.rowHeight;
+            if (currentY + h > scrollTop) {
+              startIndex = i;
+              break;
+            }
+            currentY += h;
+          }
+          
+          // Find end index
+          let endIndex = startIndex;
+          let visibleHeight = 0;
+          for (let i = startIndex; i < this.data.length; i++) {
+            const h = this.heightCache.get(i) || this.rowHeight;
+            visibleHeight += h;
+            endIndex = i;
+            if (visibleHeight > containerHeight) break;
+          }
+          
+          const start = Math.max(0, startIndex - this.buffer);
+          const end = Math.min(this.data.length - 1, endIndex + this.buffer);
+          
+          this.renderRange(start, end, currentY);
+        }
+
+        renderRange(start, end, startY) {
+          // Calculate offset for start item
+          let topOffset = 0;
+          for(let i=0; i<start; i++) {
+             topOffset += this.heightCache.get(i) || this.rowHeight;
+          }
+
+          const newKeys = new Set();
+          
+          // Create or update items
+          let currentTop = topOffset;
+          const fragment = document.createDocumentFragment();
+
+          for (let i = start; i <= end; i++) {
+            newKeys.add(i);
+            const itemData = this.data[i];
+            
+            let el = this.content.querySelector(\`[data-index="\${i}"]\`);
+            if (!el) {
+              el = document.createElement('div');
+              el.setAttribute('data-index', i);
+              el.className = 'virtual-item';
+              el.style.position = 'absolute';
+              el.style.left = '0';
+              el.style.width = '100%';
+              el.innerHTML = this.renderItem(itemData, i);
+              
+              // Measure height after render
+              this.content.appendChild(el); 
+              const rect = el.getBoundingClientRect();
+              const actualHeight = rect.height;
+              
+              if (Math.abs(actualHeight - (this.heightCache.get(i) || this.rowHeight)) > 1) {
+                this.heightCache.set(i, actualHeight);
+                // If height changed significantly, we might need to adjust total height
+                // But for performance, maybe just do it on next scroll or rarely?
+                // For now, let's keep it simple. If we update inline style top, we need to know exact previous heights.
+              }
+            }
+            
+            el.style.top = currentTop + 'px';
+            currentTop += (this.heightCache.get(i) || this.rowHeight);
+          }
+          
+          // Cleanup
+          Array.from(this.content.children).forEach(child => {
+            if (child.classList.contains('empty')) return;
+            const idx = parseInt(child.getAttribute('data-index'));
+            if (!newKeys.has(idx)) {
+              child.remove();
+            }
+          });
+          
+          this.updateTotalHeight();
+        }
+        
+        scrollToTime(timestamp) {
+           const idx = this.data.findIndex(item => item.ts >= timestamp);
+           if (idx !== -1) {
+             this.scrollToIndex(idx);
+           }
+        }
+        
+        scrollToIndex(index) {
+          let top = 0;
+          for(let i=0; i<index; i++) {
+            top += this.heightCache.get(i) || this.rowHeight;
+          }
+          this.container.scrollTop = top;
+        }
+      }
+    `;
+  }
+
   /**
    * 导出单个会话为 HTML 格式
    */
@@ -3127,85 +3286,29 @@ class ExportService {
         )
         : new Map<string, string>()
 
-      const renderedMessages = sortedMessages.map((msg, index) => {
-        const mediaKey = `${msg.localType}_${msg.localId}`
-        const mediaItem = mediaCache.get(mediaKey) || null
-
-        const isSenderMe = msg.isSend
-        const senderInfo = collected.memberSet.get(msg.senderUsername)?.member
-        const senderName = isSenderMe
-          ? (myInfo.displayName || '我')
-          : (isGroup
-            ? (senderInfo?.groupNickname || senderInfo?.accountName || msg.senderUsername)
-            : (sessionInfo.displayName || sessionId))
-        const avatarData = avatarMap.get(isSenderMe ? cleanedMyWxid : msg.senderUsername)
-        const avatarHtml = avatarData
-          ? `<img src="${this.escapeAttribute(encodeURI(avatarData))}" alt="${this.escapeAttribute(senderName)}" />`
-          : `<span>${this.escapeHtml(this.getAvatarFallback(senderName))}</span>`
-
-        const timeText = this.formatTimestamp(msg.createTime)
-        const typeName = this.getMessageTypeName(msg.localType)
-
-        let textContent = this.formatHtmlMessageText(msg.content, msg.localType)
-        if (msg.localType === 34 && useVoiceTranscript) {
-          textContent = voiceTranscriptMap.get(msg.localId) || '[语音消息 - 转文字失败]'
-        }
-        if (mediaItem && (msg.localType === 3 || msg.localType === 47)) {
-          textContent = ''
-        }
-
-        let mediaHtml = ''
-        if (mediaItem?.kind === 'image') {
-          const mediaPath = this.escapeAttribute(encodeURI(mediaItem.relativePath))
-          mediaHtml = `<img class="message-media image previewable" src="${mediaPath}" data-full="${mediaPath}" alt="${this.escapeAttribute(typeName)}" />`
-        } else if (mediaItem?.kind === 'emoji') {
-          const mediaPath = this.escapeAttribute(encodeURI(mediaItem.relativePath))
-          mediaHtml = `<img class="message-media emoji previewable" src="${mediaPath}" data-full="${mediaPath}" alt="${this.escapeAttribute(typeName)}" />`
-        } else if (mediaItem?.kind === 'voice') {
-          mediaHtml = `<audio class="message-media audio" controls src="${this.escapeAttribute(encodeURI(mediaItem.relativePath))}"></audio>`
-        } else if (mediaItem?.kind === 'video') {
-          const posterAttr = mediaItem.posterDataUrl ? ` poster="${this.escapeAttribute(mediaItem.posterDataUrl)}"` : ''
-          mediaHtml = `<video class="message-media video" controls preload="metadata"${posterAttr} src="${this.escapeAttribute(encodeURI(mediaItem.relativePath))}"></video>`
-        }
-
-        const textHtml = textContent
-          ? `<div class="message-text">${this.renderTextWithEmoji(textContent).replace(/\r?\n/g, '<br />')}</div>`
-          : ''
-        const senderHtml = isGroup
-          ? `<div class="sender-name">${this.escapeHtml(senderName)}</div>`
-          : ''
-        const timeHtml = `<div class="message-time">${this.escapeHtml(timeText)}</div>`
-        const messageBody = `
-            ${timeHtml}
-            ${senderHtml}
-            <div class="message-content">
-              ${mediaHtml}
-              ${textHtml}
-            </div>
-        `
-
-        return `
-          <div class="message ${isSenderMe ? 'sent' : 'received'}" data-timestamp="${msg.createTime}" data-index="${index + 1}">
-            <div class="message-row">
-              <div class="avatar">${avatarHtml}</div>
-              <div class="bubble">
-                ${messageBody}
-              </div>
-            </div>
-          </div>
-        `
-      }).join('\n')
-
       onProgress?.({
-        current: 85,
+        current: 60,
         total: 100,
         currentSession: sessionInfo.displayName,
         phase: 'writing'
       })
 
+      // ================= BEGIN STREAM WRITING =================
       const exportMeta = this.getExportMeta(sessionId, sessionInfo, isGroup)
       const htmlStyles = this.loadExportHtmlStyles()
-      const html = `<!DOCTYPE html>
+      const stream = fs.createWriteStream(outputPath, { encoding: 'utf-8' })
+
+      const writePromise = (str: string) => {
+        return new Promise<void>((resolve, reject) => {
+          if (!stream.write(str)) {
+            stream.once('drain', resolve)
+          } else {
+            resolve()
+          }
+        })
+      }
+
+      await writePromise(`<!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -3250,15 +3353,109 @@ class ExportService {
           </div>
         </div>
       </div>
-      <div class="message-list" id="messageList">
-        ${renderedMessages || '<div class="empty">暂无消息</div>'}
-      </div>
+      
+      <!-- Virtual Scroll Container -->
+      <div id="virtualScrollContainer" class="virtual-scroll-container"></div>
+      
     </div>
+    
     <div class="image-preview" id="imagePreview">
       <img id="imagePreviewTarget" alt="预览" />
     </div>
+
+    <!-- Data Injection -->
     <script>
-      const messages = Array.from(document.querySelectorAll('.message'))
+      window.WEFLOW_DATA = [
+`);
+
+      // Write messages in chunks
+      for (let i = 0; i < sortedMessages.length; i++) {
+        const msg = sortedMessages[i]
+        const mediaKey = `${msg.localType}_${msg.localId}`
+        const mediaItem = mediaCache.get(mediaKey) || null
+
+        const isSenderMe = msg.isSend
+        const senderInfo = collected.memberSet.get(msg.senderUsername)?.member
+        const senderName = isSenderMe
+          ? (myInfo.displayName || '我')
+          : (isGroup
+            ? (senderInfo?.groupNickname || senderInfo?.accountName || msg.senderUsername)
+            : (sessionInfo.displayName || sessionId))
+        const avatarData = avatarMap.get(isSenderMe ? cleanedMyWxid : msg.senderUsername)
+        const avatarHtml = avatarData
+          ? `<img src="${this.escapeAttribute(encodeURI(avatarData))}" alt="${this.escapeAttribute(senderName)}" />`
+          : `<span>${this.escapeHtml(this.getAvatarFallback(senderName))}</span>`
+
+        const timeText = this.formatTimestamp(msg.createTime)
+        const typeName = this.getMessageTypeName(msg.localType)
+
+        let textContent = this.formatHtmlMessageText(msg.content, msg.localType)
+        if (msg.localType === 34 && useVoiceTranscript) {
+          textContent = voiceTranscriptMap.get(msg.localId) || '[语音消息 - 转文字失败]'
+        }
+        if (mediaItem && (msg.localType === 3 || msg.localType === 47)) {
+          textContent = ''
+        }
+
+        let mediaHtml = ''
+        if (mediaItem?.kind === 'image') {
+          const mediaPath = this.escapeAttribute(encodeURI(mediaItem.relativePath))
+          mediaHtml = `<img class="message-media image previewable" src="${mediaPath}" data-full="${mediaPath}" alt="${this.escapeAttribute(typeName)}" />`
+        } else if (mediaItem?.kind === 'emoji') {
+          const mediaPath = this.escapeAttribute(encodeURI(mediaItem.relativePath))
+          mediaHtml = `<img class="message-media emoji previewable" src="${mediaPath}" data-full="${mediaPath}" alt="${this.escapeAttribute(typeName)}" />`
+        } else if (mediaItem?.kind === 'voice') {
+          mediaHtml = `<audio class="message-media audio" controls src="${this.escapeAttribute(encodeURI(mediaItem.relativePath))}"></audio>`
+        } else if (mediaItem?.kind === 'video') {
+          const posterAttr = mediaItem.posterDataUrl ? ` poster="${this.escapeAttribute(mediaItem.posterDataUrl)}"` : ''
+          mediaHtml = `<video class="message-media video" controls preload="metadata"${posterAttr} src="${this.escapeAttribute(encodeURI(mediaItem.relativePath))}"></video>`
+        }
+
+        const textHtml = textContent
+          ? `<div class="message-text">${this.renderTextWithEmoji(textContent).replace(/\r?\n/g, '<br />')}</div>`
+          : ''
+        const senderNameHtml = isGroup
+          ? `<div class="sender-name">${this.escapeHtml(senderName)}</div>`
+          : ''
+        const timeHtml = `<div class="message-time">${this.escapeHtml(timeText)}</div>`
+        const messageBody = `
+            ${timeHtml}
+            ${senderNameHtml}
+            <div class="message-content">
+              ${mediaHtml}
+              ${textHtml}
+            </div>
+        `
+
+        // Compact JSON object
+        const itemObj = {
+          i: i + 1, // index
+          t: msg.createTime, // timestamp
+          s: isSenderMe ? 1 : 0, // isSend
+          a: avatarHtml, // avatar HTML
+          b: messageBody // body HTML
+        }
+
+        const jsonStr = JSON.stringify(itemObj)
+        await writePromise(jsonStr + (i < sortedMessages.length - 1 ? ',\n' : '\n'))
+
+        // Report progress occasionally
+        if ((i + 1) % 500 === 0) {
+          onProgress?.({
+            current: 60 + Math.floor((i + 1) / sortedMessages.length * 30),
+            total: 100,
+            currentSession: sessionInfo.displayName,
+            phase: 'writing'
+          })
+        }
+      }
+
+      await writePromise(`];
+    </script>
+
+    <script>
+       ${this.getVirtualScrollScript()}
+
       const searchInput = document.getElementById('searchInput')
       const timeInput = document.getElementById('timeInput')
       const jumpBtn = document.getElementById('jumpBtn')
@@ -3266,47 +3463,69 @@ class ExportService {
       const themeSelect = document.getElementById('themeSelect')
       const imagePreview = document.getElementById('imagePreview')
       const imagePreviewTarget = document.getElementById('imagePreviewTarget')
+      const container = document.getElementById('virtualScrollContainer')
       let imageZoom = 1
 
+      // Initial Data
+      let allData = window.WEFLOW_DATA || [];
+      let currentList = allData;
+
+      // Render Item Function
+      const renderItem = (item, index) => {
+         const isSenderMe = item.s === 1;
+         return \`
+          <div class="message \${isSenderMe ? 'sent' : 'received'}" data-index="\${item.i}">
+            <div class="message-row">
+              <div class="avatar">\${item.a}</div>
+              <div class="bubble">
+                \${item.b}
+              </div>
+            </div>
+          </div>
+         \`;
+      };
+      
+      const scroller = new VirtualScroller(container, [], currentList, renderItem);
+
       const updateCount = () => {
-        const visible = messages.filter((msg) => !msg.classList.contains('hidden'))
-        resultCount.textContent = \`共 \${visible.length} 条\`
+        resultCount.textContent = \`共 \${currentList.length} 条\`
       }
 
+      // Search Logic
+      let searchTimeout;
       searchInput.addEventListener('input', () => {
-        const keyword = searchInput.value.trim().toLowerCase()
-        messages.forEach((msg) => {
-          const text = msg.textContent ? msg.textContent.toLowerCase() : ''
-          const match = !keyword || text.includes(keyword)
-          msg.classList.toggle('hidden', !match)
-        })
-        updateCount()
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          const keyword = searchInput.value.trim().toLowerCase();
+          if (!keyword) {
+            currentList = allData;
+          } else {
+            // Simplified search: check raw html content (contains body text and sender name)
+            // Ideally we should search raw text, but we only have pre-rendered HTML in JSON 'b' (body)
+            // 'b' contains message content and sender name.
+            currentList = allData.filter(item => {
+               return item.b.toLowerCase().includes(keyword); 
+            });
+          }
+          scroller.setData(currentList);
+          updateCount();
+        }, 300);
       })
 
+      // Jump Logic
       jumpBtn.addEventListener('click', () => {
         const value = timeInput.value
         if (!value) return
         const target = Math.floor(new Date(value).getTime() / 1000)
-        const visibleMessages = messages.filter((msg) => !msg.classList.contains('hidden'))
-        if (visibleMessages.length === 0) return
-        let targetMessage = visibleMessages.find((msg) => {
-          const time = Number(msg.dataset.timestamp || 0)
-          return time >= target
-        })
-        if (!targetMessage) {
-          targetMessage = visibleMessages[visibleMessages.length - 1]
-        }
-        visibleMessages.forEach((msg) => msg.classList.remove('highlight'))
-        targetMessage.classList.add('highlight')
-        targetMessage.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        setTimeout(() => targetMessage.classList.remove('highlight'), 2000)
+        // Find in current list
+        scroller.scrollToTime(target);
       })
 
+      // Theme Logic
       const applyTheme = (value) => {
         document.body.setAttribute('data-theme', value)
         localStorage.setItem('weflow-export-theme', value)
       }
-
       const storedTheme = localStorage.getItem('weflow-export-theme') || 'cloud-dancer'
       themeSelect.value = storedTheme
       applyTheme(storedTheme)
@@ -3315,16 +3534,18 @@ class ExportService {
         applyTheme(event.target.value)
       })
 
-      document.querySelectorAll('.previewable').forEach((img) => {
-        img.addEventListener('click', () => {
-          const full = img.getAttribute('data-full')
-          if (!full) return
-          imagePreviewTarget.src = full
-          imageZoom = 1
-          imagePreviewTarget.style.transform = 'scale(1)'
-          imagePreview.classList.add('active')
-        })
-      })
+      // Image Preview (Delegation)
+      container.addEventListener('click', (e) => {
+        const target = e.target;
+        if (target.classList.contains('previewable')) {
+           const full = target.getAttribute('data-full')
+           if (!full) return
+           imagePreviewTarget.src = full
+           imageZoom = 1
+           imagePreviewTarget.style.transform = 'scale(1)'
+           imagePreview.classList.add('active')
+        }
+      });
 
       imagePreviewTarget.addEventListener('click', (event) => {
         event.stopPropagation()
@@ -3351,20 +3572,24 @@ class ExportService {
       })
 
       updateCount()
+      console.log('WeFlow Export Loaded', allData.length);
     </script>
   </body>
-</html>`
+</html>`);
 
-      fs.writeFileSync(outputPath, html, 'utf-8')
-
-      onProgress?.({
-        current: 100,
-        total: 100,
-        currentSession: sessionInfo.displayName,
-        phase: 'complete'
+      return new Promise((resolve, reject) => {
+        stream.end(() => {
+          onProgress?.({
+            current: 100,
+            total: 100,
+            currentSession: sessionInfo.displayName,
+            phase: 'complete'
+          })
+          resolve({ success: true })
+        })
+        stream.on('error', reject)
       })
 
-      return { success: true }
     } catch (e) {
       return { success: false, error: String(e) }
     }

@@ -33,7 +33,8 @@ export default defineConfig({
                 'fsevents',
                 'whisper-node',
                 'shelljs',
-                'exceljs'
+                'exceljs',
+                'node-llama-cpp'
               ]
             }
           }

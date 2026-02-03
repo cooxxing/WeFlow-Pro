@@ -21,6 +21,7 @@ import { videoService } from './services/videoService'
 import { snsService } from './services/snsService'
 import { contactExportService } from './services/contactExportService'
 import { windowsHelloService } from './services/windowsHelloService'
+import { llamaService } from './services/llamaService'
 import { registerNotificationHandlers, showNotification } from './windows/notificationWindow'
 
 
@@ -799,6 +800,64 @@ function registerIpcHandlers() {
   ipcMain.handle('chat:getContact', async (_, username: string) => {
     return await chatService.getContact(username)
   })
+
+  // Llama AI
+  ipcMain.handle('llama:init', async () => {
+    return await llamaService.init()
+  })
+
+  ipcMain.handle('llama:loadModel', async (_, modelPath: string) => {
+    return llamaService.loadModel(modelPath)
+  })
+
+  ipcMain.handle('llama:createSession', async (_, systemPrompt?: string) => {
+    return llamaService.createSession(systemPrompt)
+  })
+
+  ipcMain.handle('llama:chat', async (event, message: string, options?: { thinking?: boolean }) => {
+    // We use a callback to stream back to the renderer
+    const webContents = event.sender
+    try {
+      if (!webContents) return { success: false, error: 'No sender' }
+
+      const response = await llamaService.chat(message, options, (token) => {
+        if (!webContents.isDestroyed()) {
+          webContents.send('llama:token', token)
+        }
+      })
+      return { success: true, response }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('llama:downloadModel', async (event, url: string, savePath: string) => {
+    const webContents = event.sender
+    try {
+      await llamaService.downloadModel(url, savePath, (payload) => {
+        if (!webContents.isDestroyed()) {
+          webContents.send('llama:downloadProgress', payload)
+        }
+      })
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  })
+
+  ipcMain.handle('llama:getModelsPath', async () => {
+    return llamaService.getModelsPath()
+  })
+
+  ipcMain.handle('llama:checkFileExists', async (_, filePath: string) => {
+    const { existsSync } = await import('fs')
+    return existsSync(filePath)
+  })
+
+  ipcMain.handle('llama:getModelStatus', async (_, modelPath: string) => {
+    return llamaService.getModelStatus(modelPath)
+  })
+
 
   ipcMain.handle('chat:getContactAvatar', async (_, username: string) => {
     return await chatService.getContactAvatar(username)

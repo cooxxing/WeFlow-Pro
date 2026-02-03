@@ -459,6 +459,17 @@ export interface ElectronAPI {
     debugResource: (url: string) => Promise<{ success: boolean; status?: number; headers?: any; error?: string }>
     proxyImage: (url: string) => Promise<{ success: boolean; dataUrl?: string; error?: string }>
   }
+  llama: {
+    loadModel: (modelPath: string) => Promise<boolean>
+    createSession: (systemPrompt?: string) => Promise<boolean>
+    chat: (message: string) => Promise<{ success: boolean; response?: any; error?: string }>
+    downloadModel: (url: string, savePath: string) => Promise<void>
+    getModelsPath: () => Promise<string>
+    checkFileExists: (filePath: string) => Promise<boolean>
+    getModelStatus: (modelPath: string) => Promise<{ exists: boolean; path?: string; size?: number; error?: string }>
+    onToken: (callback: (token: string) => void) => () => void
+    onDownloadProgress: (callback: (payload: { downloaded: number; total: number; speed: number }) => void) => () => void
+  }
 }
 
 export interface ExportOptions {

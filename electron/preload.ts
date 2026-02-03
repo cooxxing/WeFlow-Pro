@@ -265,5 +265,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('sns:getTimeline', limit, offset, usernames, keyword, startTime, endTime),
     debugResource: (url: string) => ipcRenderer.invoke('sns:debugResource', url),
     proxyImage: (url: string) => ipcRenderer.invoke('sns:proxyImage', url)
+  },
+
+  // Llama AI
+  llama: {
+    loadModel: (modelPath: string) => ipcRenderer.invoke('llama:loadModel', modelPath),
+    createSession: (systemPrompt?: string) => ipcRenderer.invoke('llama:createSession', systemPrompt),
+    chat: (message: string, options?: any) => ipcRenderer.invoke('llama:chat', message, options),
+    downloadModel: (url: string, savePath: string) => ipcRenderer.invoke('llama:downloadModel', url, savePath),
+    getModelsPath: () => ipcRenderer.invoke('llama:getModelsPath'),
+    checkFileExists: (filePath: string) => ipcRenderer.invoke('llama:checkFileExists', filePath),
+    getModelStatus: (modelPath: string) => ipcRenderer.invoke('llama:getModelStatus', modelPath),
+    onToken: (callback: (token: string) => void) => {
+      const listener = (_: any, token: string) => callback(token)
+      ipcRenderer.on('llama:token', listener)
+      return () => ipcRenderer.removeListener('llama:token', listener)
+    },
+    onDownloadProgress: (callback: (payload: { downloaded: number; total: number; speed: number }) => void) => {
+      const listener = (_: any, payload: { downloaded: number; total: number; speed: number }) => callback(payload)
+      ipcRenderer.on('llama:downloadProgress', listener)
+      return () => ipcRenderer.removeListener('llama:downloadProgress', listener)
+    }
   }
 })

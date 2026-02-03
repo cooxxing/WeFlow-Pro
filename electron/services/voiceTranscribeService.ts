@@ -1,5 +1,5 @@
 ﻿import { app } from 'electron'
-import { existsSync, mkdirSync, statSync, unlinkSync, createWriteStream } from 'fs'
+import { existsSync, mkdirSync, statSync, unlinkSync, createWriteStream, openSync, writeSync, closeSync } from 'fs'
 import { join } from 'path'
 import * as https from 'https'
 import * as http from 'http'
@@ -24,6 +24,7 @@ type DownloadProgress = {
   downloadedBytes: number
   totalBytes?: number
   percent?: number
+  speed?: number
 }
 
 const SENSEVOICE_MODEL: ModelInfo = {
@@ -123,44 +124,44 @@ export class VoiceTranscribeService {
           percent: 0
         })
 
-        // 下载模型文件 (40%)
+        // 下载模型文件 (80% 权重)
         console.info('[VoiceTranscribe] 开始下载模型文件...')
         await this.downloadToFile(
           MODEL_DOWNLOAD_URLS.model,
           modelPath,
           'model',
-          (downloaded, total) => {
-            const percent = total ? (downloaded / total) * 40 : undefined
+          (downloaded, total, speed) => {
+            const percent = total ? (downloaded / total) * 80 : 0
             onProgress?.({
               modelName: SENSEVOICE_MODEL.name,
               downloadedBytes: downloaded,
               totalBytes: SENSEVOICE_MODEL.sizeBytes,
-              percent
+              percent,
+              speed
             })
           }
         )
 
-        // 下载 tokens 文件 (30%)
+        // 下载 tokens 文件 (20% 权重)
         console.info('[VoiceTranscribe] 开始下载 tokens 文件...')
         await this.downloadToFile(
           MODEL_DOWNLOAD_URLS.tokens,
           tokensPath,
           'tokens',
-          (downloaded, total) => {
+          (downloaded, total, speed) => {
             const modelSize = existsSync(modelPath) ? statSync(modelPath).size : 0
-            const percent = total ? 40 + (downloaded / total) * 30 : 40
+            const percent = total ? 80 + (downloaded / total) * 20 : 80
             onProgress?.({
               modelName: SENSEVOICE_MODEL.name,
               downloadedBytes: modelSize + downloaded,
               totalBytes: SENSEVOICE_MODEL.sizeBytes,
-              percent
+              percent,
+              speed
             })
           }
         )
 
         console.info('[VoiceTranscribe] 模型下载完成')
-
-        console.info('[VoiceTranscribe] 所有文件下载完成')
         return { success: true, modelPath, tokensPath }
       } catch (error) {
         const modelPath = this.resolveModelPath(SENSEVOICE_MODEL.files.model)
@@ -180,7 +181,7 @@ export class VoiceTranscribeService {
   }
 
   /**
-   * 转写 WAV 音频数据 (后台 Worker Threads 版本)
+   * 转写 WAV 音频数据
    */
   async transcribeWavBuffer(
     wavData: Buffer,
@@ -197,18 +198,15 @@ export class VoiceTranscribeService {
           return
         }
 
-        // 获取配置的语言列表，如果没有传入则从配置读取
         let supportedLanguages = languages
         if (!supportedLanguages || supportedLanguages.length === 0) {
           supportedLanguages = this.configService.get('transcribeLanguages')
-          // 如果配置中也没有或为空，使用默认值
           if (!supportedLanguages || supportedLanguages.length === 0) {
             supportedLanguages = ['zh', 'yue']
           }
         }
 
         const { Worker } = require('worker_threads')
-        // main.js 和 transcribeWorker.js 同在 dist-electron 目录下
         const workerPath = join(__dirname, 'transcribeWorker.js')
 
         const worker = new Worker(workerPath, {
@@ -224,12 +222,10 @@ export class VoiceTranscribeService {
         let finalTranscript = ''
 
         worker.on('message', (msg: any) => {
-          
           if (msg.type === 'partial') {
             onPartial?.(msg.text)
           } else if (msg.type === 'final') {
             finalTranscript = msg.text
-            
             resolve({ success: true, transcript: finalTranscript })
             worker.terminate()
           } else if (msg.type === 'error') {
@@ -239,15 +235,9 @@ export class VoiceTranscribeService {
           }
         })
 
-        worker.on('error', (err: Error) => {
-          resolve({ success: false, error: String(err) })
-        })
-
+        worker.on('error', (err: Error) => resolve({ success: false, error: String(err) }))
         worker.on('exit', (code: number) => {
-          if (code !== 0) {
-            console.error(`[VoiceTranscribe] Worker stopped with exit code ${code}`)
-            resolve({ success: false, error: `Worker exited with code ${code}` })
-          }
+          if (code !== 0) resolve({ success: false, error: `Worker exited with code ${code}` })
         })
 
       } catch (error) {
@@ -257,121 +247,230 @@ export class VoiceTranscribeService {
   }
 
   /**
-   * 下载文件
+   * 下载文件 (支持多线程)
    */
-  private downloadToFile(
+  private async downloadToFile(
     url: string,
     targetPath: string,
     fileName: string,
-    onProgress?: (downloaded: number, total?: number) => void,
-    remainingRedirects = 5
+    onProgress?: (downloaded: number, total?: number, speed?: number) => void
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const protocol = url.startsWith('https') ? https : http
-      console.info(`[VoiceTranscribe] 下载 ${fileName}:`, url)
+    if (existsSync(targetPath)) {
+      unlinkSync(targetPath)
+    }
 
-      const options = {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        },
-        timeout: 30000 // 30秒连接超时
+    console.info(`[VoiceTranscribe] 准备下载 ${fileName}: ${url}`)
+
+    // 1. 探测支持情况
+    let probeResult
+    try {
+      probeResult = await this.probeUrl(url)
+    } catch (err) {
+      console.warn(`[VoiceTranscribe] ${fileName} 探测失败，使用单线程`, err)
+      return this.downloadSingleThread(url, targetPath, fileName, onProgress)
+    }
+
+    const { totalSize, acceptRanges, finalUrl } = probeResult
+
+    // 如果文件太小 (< 2MB) 或者不支持 Range，使用单线程
+    if (totalSize < 2 * 1024 * 1024 || !acceptRanges) {
+      return this.downloadSingleThread(finalUrl, targetPath, fileName, onProgress)
+    }
+
+    console.info(`[VoiceTranscribe] ${fileName} 开始多线程下载 (4 线程), 大小: ${(totalSize / 1024 / 1024).toFixed(2)} MB`)
+
+    const threadCount = 4
+    const chunkSize = Math.ceil(totalSize / threadCount)
+    const fd = openSync(targetPath, 'w')
+
+    let downloadedTotal = 0
+    let lastDownloaded = 0
+    let lastTime = Date.now()
+    let speed = 0
+
+    const speedInterval = setInterval(() => {
+      const now = Date.now()
+      const duration = (now - lastTime) / 1000
+      if (duration > 0) {
+        speed = (downloadedTotal - lastDownloaded) / duration
+        lastDownloaded = downloadedTotal
+        lastTime = now
+        onProgress?.(downloadedTotal, totalSize, speed)
+      }
+    }, 1000)
+
+    try {
+      const promises = []
+      for (let i = 0; i < threadCount; i++) {
+        const start = i * chunkSize
+        const end = i === threadCount - 1 ? totalSize - 1 : (i + 1) * chunkSize - 1
+
+        promises.push(this.downloadChunk(finalUrl, fd, start, end, (bytes) => {
+          downloadedTotal += bytes
+        }))
       }
 
-      const request = protocol.get(url, options, (response) => {
-        console.info(`[VoiceTranscribe] ${fileName} 响应状态:`, response.statusCode)
+      await Promise.all(promises)
+      // Final progress update
+      onProgress?.(totalSize, totalSize, 0)
+      console.info(`[VoiceTranscribe] ${fileName} 多线程下载完成`)
+    } catch (err) {
+      console.error(`[VoiceTranscribe] ${fileName} 多线程下载失败:`, err)
+      throw err
+    } finally {
+      clearInterval(speedInterval)
+      closeSync(fd)
+    }
+  }
 
-        // 处理重定向
-        if ([301, 302, 303, 307, 308].includes(response.statusCode || 0) && response.headers.location) {
-          if (remainingRedirects <= 0) {
-            reject(new Error('重定向次数过多'))
+  private async probeUrl(url: string, remainingRedirects = 5): Promise<{ totalSize: number, acceptRanges: boolean, finalUrl: string }> {
+    return new Promise((resolve, reject) => {
+      const protocol = url.startsWith('https') ? https : http
+      const options = {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://modelscope.cn/',
+          'Range': 'bytes=0-0'
+        }
+      }
+
+      const req = protocol.get(url, options, (res) => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode || 0)) {
+          const location = res.headers.location
+          if (location && remainingRedirects > 0) {
+            const nextUrl = new URL(location, url).href
+            this.probeUrl(nextUrl, remainingRedirects - 1).then(resolve).catch(reject)
             return
           }
-          console.info(`[VoiceTranscribe] 重定向到:`, response.headers.location)
-          this.downloadToFile(response.headers.location, targetPath, fileName, onProgress, remainingRedirects - 1)
-            .then(resolve)
-            .catch(reject)
+        }
+
+        if (res.statusCode !== 206 && res.statusCode !== 200) {
+          reject(new Error(`Probe failed: HTTP ${res.statusCode}`))
           return
         }
 
+        const contentRange = res.headers['content-range']
+        let totalSize = 0
+        if (contentRange) {
+          const parts = contentRange.split('/')
+          totalSize = parseInt(parts[parts.length - 1], 10)
+        } else {
+          totalSize = parseInt(res.headers['content-length'] || '0', 10)
+        }
+
+        const acceptRanges = res.headers['accept-ranges'] === 'bytes' || !!contentRange
+        resolve({ totalSize, acceptRanges, finalUrl: url })
+        res.destroy()
+      })
+      req.on('error', reject)
+    })
+  }
+
+  private async downloadChunk(url: string, fd: number, start: number, end: number, onData: (bytes: number) => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const protocol = url.startsWith('https') ? https : http
+      const options = {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://modelscope.cn/',
+          'Range': `bytes=${start}-${end}`
+        }
+      }
+
+      const req = protocol.get(url, options, (res) => {
+        if (res.statusCode !== 206) {
+          reject(new Error(`Chunk download failed: HTTP ${res.statusCode}`))
+          return
+        }
+
+        let currentOffset = start
+        res.on('data', (chunk: Buffer) => {
+          try {
+            writeSync(fd, chunk, 0, chunk.length, currentOffset)
+            currentOffset += chunk.length
+            onData(chunk.length)
+          } catch (err) {
+            reject(err)
+            res.destroy()
+          }
+        })
+
+        res.on('end', () => resolve())
+        res.on('error', reject)
+      })
+      req.on('error', reject)
+    })
+  }
+
+  private async downloadSingleThread(url: string, targetPath: string, fileName: string, onProgress?: (downloaded: number, total?: number, speed?: number) => void, remainingRedirects = 5): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const protocol = url.startsWith('https') ? https : http
+      const options = {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://modelscope.cn/'
+        }
+      }
+
+      const request = protocol.get(url, options, (response) => {
+        if ([301, 302, 303, 307, 308].includes(response.statusCode || 0)) {
+          const location = response.headers.location
+          if (location && remainingRedirects > 0) {
+            const nextUrl = new URL(location, url).href
+            this.downloadSingleThread(nextUrl, targetPath, fileName, onProgress, remainingRedirects - 1).then(resolve).catch(reject)
+            return
+          }
+        }
+
         if (response.statusCode !== 200) {
-          reject(new Error(`下载失败: HTTP ${response.statusCode}`))
+          reject(new Error(`Fallback download failed: HTTP ${response.statusCode}`))
           return
         }
 
         const totalBytes = Number(response.headers['content-length'] || 0) || undefined
         let downloadedBytes = 0
+        let lastDownloaded = 0
+        let lastTime = Date.now()
+        let speed = 0
 
-        console.info(`[VoiceTranscribe] ${fileName} 文件大小:`, totalBytes ? `${(totalBytes / 1024 / 1024).toFixed(2)} MB` : '未知')
+        const speedInterval = setInterval(() => {
+          const now = Date.now()
+          const duration = (now - lastTime) / 1000
+          if (duration > 0) {
+            speed = (downloadedBytes - lastDownloaded) / duration
+            lastDownloaded = downloadedBytes
+            lastTime = now
+            onProgress?.(downloadedBytes, totalBytes, speed)
+          }
+        }, 1000)
 
         const writer = createWriteStream(targetPath)
-
-        // 设置数据接收超时（60秒没有数据则超时）
-        let lastDataTime = Date.now()
-        const dataTimeout = setInterval(() => {
-          if (Date.now() - lastDataTime > 60000) {
-            clearInterval(dataTimeout)
-            response.destroy()
-            writer.close()
-            reject(new Error('下载超时：60秒内未收到数据'))
-          }
-        }, 5000)
-
         response.on('data', (chunk) => {
-          lastDataTime = Date.now()
           downloadedBytes += chunk.length
-          onProgress?.(downloadedBytes, totalBytes)
-        })
-
-        response.on('error', (error) => {
-          clearInterval(dataTimeout)
-          try { writer.close() } catch { }
-          console.error(`[VoiceTranscribe] ${fileName} 响应错误:`, error)
-          reject(error)
-        })
-
-        writer.on('error', (error) => {
-          clearInterval(dataTimeout)
-          try { writer.close() } catch { }
-          console.error(`[VoiceTranscribe] ${fileName} 写入错误:`, error)
-          reject(error)
         })
 
         writer.on('finish', () => {
-          clearInterval(dataTimeout)
+          clearInterval(speedInterval)
           writer.close()
-          console.info(`[VoiceTranscribe] ${fileName} 下载完成:`, targetPath)
           resolve()
         })
 
+        writer.on('error', (err) => {
+          clearInterval(speedInterval)
+          reject(err)
+        })
         response.pipe(writer)
       })
-
-      request.on('timeout', () => {
-        request.destroy()
-        console.error(`[VoiceTranscribe] ${fileName} 连接超时`)
-        reject(new Error('连接超时'))
-      })
-
-      request.on('error', (error) => {
-        console.error(`[VoiceTranscribe] ${fileName} 请求错误:`, error)
-        reject(error)
-      })
+      request.on('error', reject)
     })
   }
 
-  /**
-   * 清理资源
-   */
   dispose() {
     if (this.recognizer) {
-      try {
-        // sherpa-onnx 的 recognizer 可能需要手动释放
-        this.recognizer = null
-      } catch (error) {
-      }
+      this.recognizer = null
     }
   }
 }
 
 export const voiceTranscribeService = new VoiceTranscribeService()
-

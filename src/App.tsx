@@ -22,6 +22,7 @@ import SnsPage from './pages/SnsPage'
 import ContactsPage from './pages/ContactsPage'
 import ChatHistoryPage from './pages/ChatHistoryPage'
 import NotificationWindow from './pages/NotificationWindow'
+import AIChatPage from './pages/AIChatPage'
 
 import { useAppStore } from './stores/appStore'
 import { themes, useThemeStore, type ThemeId } from './stores/themeStore'
@@ -429,6 +430,7 @@ function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/home" element={<HomePage />} />
               <Route path="/chat" element={<ChatPage />} />
+              <Route path="/ai-chat" element={<AIChatPage />} />
               <Route path="/analytics" element={<AnalyticsWelcomePage />} />
               <Route path="/analytics/view" element={<AnalyticsPage />} />
               <Route path="/group-analytics" element={<GroupAnalyticsPage />} />

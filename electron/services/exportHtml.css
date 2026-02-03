@@ -299,3 +299,33 @@ body[data-theme="teal-water"] {
   color: var(--muted);
   padding: 40px;
 }
+
+/* Virtual Scroll */
+.virtual-scroll-container {
+  height: calc(100vh - 180px);
+  /* Adjust based on header height */
+  overflow-y: auto;
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  margin-top: 20px;
+}
+
+.virtual-scroll-spacer {
+  opacity: 0;
+  pointer-events: none;
+  width: 1px;
+}
+
+.virtual-scroll-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.message-list {
+  /* Override message-list to be inside virtual scroll */
+  display: block;
+}

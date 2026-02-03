@@ -14,13 +14,13 @@ import {
 import { Avatar } from '../components/Avatar'
 import './SettingsPage.scss'
 
-type SettingsTab = 'appearance' | 'notification' | 'database' | 'whisper' | 'export' | 'cache' | 'security' | 'about'
+type SettingsTab = 'appearance' | 'notification' | 'database' | 'models' | 'export' | 'cache' | 'security' | 'about'
 
 const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: 'appearance', label: '外观', icon: Palette },
   { id: 'notification', label: '通知', icon: Bell },
   { id: 'database', label: '数据库连接', icon: Database },
-  { id: 'whisper', label: '语音识别模型', icon: Mic },
+  { id: 'models', label: '模型管理', icon: Mic },
   { id: 'export', label: '导出', icon: Download },
   { id: 'cache', label: '缓存', icon: HardDrive },
   { id: 'security', label: '安全', icon: ShieldCheck },
@@ -76,7 +76,21 @@ function SettingsPage() {
   const [whisperModelDir, setWhisperModelDir] = useState('')
   const [isWhisperDownloading, setIsWhisperDownloading] = useState(false)
   const [whisperDownloadProgress, setWhisperDownloadProgress] = useState(0)
+  const [whisperProgressData, setWhisperProgressData] = useState<{ downloaded: number; total: number; speed: number }>({ downloaded: 0, total: 0, speed: 0 })
   const [whisperModelStatus, setWhisperModelStatus] = useState<{ exists: boolean; modelPath?: string; tokensPath?: string } | null>(null)
+  const [llamaModelStatus, setLlamaModelStatus] = useState<{ exists: boolean; path?: string; size?: number } | null>(null)
+  const [isLlamaDownloading, setIsLlamaDownloading] = useState(false)
+  const [llamaDownloadProgress, setLlamaDownloadProgress] = useState(0)
+  const [llamaProgressData, setLlamaProgressData] = useState<{ downloaded: number; total: number; speed: number }>({ downloaded: 0, total: 0, speed: 0 })
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
   const [autoTranscribeVoice, setAutoTranscribeVoice] = useState(false)
   const [transcribeLanguages, setTranscribeLanguages] = useState<string[]>(['zh'])
   const [exportDefaultFormat, setExportDefaultFormat] = useState('excel')
@@ -273,6 +287,9 @@ function SettingsPage() {
 
 
       if (savedWhisperModelDir) setWhisperModelDir(savedWhisperModelDir)
+
+      // Load Llama status after config
+      void checkLlamaModelStatus()
     } catch (e: any) {
       console.error('加载配置失败:', e)
     }
@@ -313,7 +330,12 @@ function SettingsPage() {
   }, [])
 
   useEffect(() => {
-    const removeListener = window.electronAPI.whisper?.onDownloadProgress?.((payload: { modelName: string; downloadedBytes: number; totalBytes?: number; percent?: number }) => {
+    const removeListener = window.electronAPI.whisper?.onDownloadProgress?.((payload: { modelName: string; downloadedBytes: number; totalBytes?: number; percent?: number; speed?: number }) => {
+      setWhisperProgressData({
+        downloaded: payload.downloadedBytes,
+        total: payload.totalBytes || 0,
+        speed: payload.speed || 0
+      })
       if (typeof payload.percent === 'number') {
         setWhisperDownloadProgress(payload.percent)
       }
@@ -582,6 +604,7 @@ function SettingsPage() {
         setWhisperModelDir(dir)
         await configService.setWhisperModelDir(dir)
         showMessage('已选择 Whisper 模型目录', true)
+        await checkLlamaModelStatus()
       }
     } catch (e: any) {
       showMessage('选择目录失败', false)
@@ -617,6 +640,68 @@ function SettingsPage() {
   const handleResetWhisperModelDir = async () => {
     setWhisperModelDir('')
     await configService.setWhisperModelDir('')
+    await checkLlamaModelStatus()
+  }
+
+  const checkLlamaModelStatus = async () => {
+    try {
+      // @ts-ignore
+      const modelsPath = await window.electronAPI.llama?.getModelsPath()
+      if (!modelsPath) return
+      const modelName = "Qwen3-4B-Q4_K_M.gguf" // Hardcoded preset for now
+      const fullPath = `${modelsPath}\\${modelName}`
+      // @ts-ignore
+      const status = await window.electronAPI.llama?.getModelStatus(fullPath)
+      if (status) {
+        setLlamaModelStatus({
+          exists: status.exists,
+          path: status.path,
+          size: status.size
+        })
+      }
+    } catch (e) {
+      console.error("Check llama model status failed", e)
+    }
+  }
+
+  useEffect(() => {
+    const handleLlamaProgress = (payload: { downloaded: number; total: number; speed: number }) => {
+      setLlamaProgressData(payload)
+      if (payload.total > 0) {
+        setLlamaDownloadProgress((payload.downloaded / payload.total) * 100)
+      }
+    }
+    // @ts-ignore
+    const removeListener = window.electronAPI.llama?.onDownloadProgress(handleLlamaProgress)
+    return () => {
+      if (typeof removeListener === 'function') removeListener()
+    }
+  }, [])
+
+  const handleDownloadLlamaModel = async () => {
+    if (isLlamaDownloading) return
+    setIsLlamaDownloading(true)
+    setLlamaDownloadProgress(0)
+    try {
+      const modelUrl = "https://www.modelscope.cn/models/Qwen/Qwen3-4B-GGUF/resolve/master/Qwen3-4B-Q4_K_M.gguf"
+      // @ts-ignore
+      const modelsPath = await window.electronAPI.llama?.getModelsPath()
+      const modelName = "Qwen3-4B-Q4_K_M.gguf"
+      const fullPath = `${modelsPath}\\${modelName}`
+
+      // @ts-ignore
+      const result = await window.electronAPI.llama?.downloadModel(modelUrl, fullPath)
+      if (result?.success) {
+        showMessage('Qwen3 模型下载完成', true)
+        await checkLlamaModelStatus()
+      } else {
+        showMessage(`模型下载失败: ${result?.error || '未知错误'}`, false)
+      }
+    } catch (e: any) {
+      showMessage(`模型下载失败: ${e}`, false)
+    } finally {
+      setIsLlamaDownloading(false)
+    }
   }
 
   const handleAutoGetDbKey = async () => {
@@ -1309,113 +1394,142 @@ function SettingsPage() {
       </div>
     </div>
   )
-  const renderWhisperTab = () => (
+  const renderModelsTab = () => (
     <div className="tab-content">
       <div className="form-group">
-        <label>自动语音转文字</label>
-        <span className="form-hint">语音解密后自动转写为文字（需下载模型）</span>
-        <div className="log-toggle-line">
-          <span className="log-status">{autoTranscribeVoice ? '已开启' : '已关闭'}</span>
-          <label className="switch" htmlFor="auto-transcribe-toggle">
-            <input
-              id="auto-transcribe-toggle"
-              className="switch-input"
-              type="checkbox"
-              checked={autoTranscribeVoice}
-              onChange={async (e) => {
-                const enabled = e.target.checked
-                setAutoTranscribeVoice(enabled)
-                await configService.setAutoTranscribeVoice(enabled)
-                showMessage(enabled ? '已开启自动转文字' : '已关闭自动转文字', true)
-              }}
-            />
-            <span className="switch-slider" />
-          </label>
-        </div>
+        <label>模型管理</label>
+        <span className="form-hint">管理语音识别和 AI 对话模型</span>
       </div>
+
       <div className="form-group">
-        <label>支持的语言</label>
-        <span className="form-hint">选择需要识别的语言（至少选择一种）</span>
-        <div className="language-checkboxes">
-          {[
-            { code: 'zh', name: '中文' },
-            { code: 'yue', name: '粤语' },
-            { code: 'en', name: '英文' },
-            { code: 'ja', name: '日文' },
-            { code: 'ko', name: '韩文' }
-          ].map((lang) => (
-            <label key={lang.code} className="language-checkbox">
-              <input
-                type="checkbox"
-                checked={transcribeLanguages.includes(lang.code)}
-                onChange={async (e) => {
-                  const checked = e.target.checked
-                  let newLanguages: string[]
+        <label>语音识别模型 (Whisper)</label>
+        <span className="form-hint">用于语音消息转文字功能</span>
 
-                  if (checked) {
-                    newLanguages = [...transcribeLanguages, lang.code]
-                  } else {
-                    if (transcribeLanguages.length <= 1) {
-                      showMessage('至少需要选择一种语言', false)
-                      return
-                    }
-                    newLanguages = transcribeLanguages.filter(l => l !== lang.code)
-                  }
-
-                  setTranscribeLanguages(newLanguages)
-                  await configService.setTranscribeLanguages(newLanguages)
-                  showMessage(`已${checked ? '添加' : '移除'}${lang.name}`, true)
-                }}
-              />
-              <div className="checkbox-custom">
-                <Check size={14} />
-                <span>{lang.name}</span>
+        <div className="setting-control vertical has-border">
+          <div className="model-status-card">
+            <div className="model-info">
+              <div className="model-name">SenseVoiceSmall (245 MB)</div>
+              <div className="model-path">
+                {whisperModelStatus?.exists ? (
+                  <span className="status-indicator success"><Check size={14} /> 已安装</span>
+                ) : (
+                  <span className="status-indicator warning">未安装</span>
+                )}
+                {whisperModelDir && <div className="path-text" title={whisperModelDir}>{whisperModelDir}</div>}
               </div>
-            </label>
-          ))}
-        </div>
-      </div>
-      <div className="form-group whisper-section">
-        <label>语音识别模型 (SenseVoiceSmall)</label>
-        <span className="form-hint">基于 Sherpa-onnx，支持中、粤、英、日、韩及情感/事件识别</span>
-        <span className="form-hint">模型下载目录</span>
-        <input
-          type="text"
-          placeholder="留空使用默认目录"
-          value={whisperModelDir}
-          onChange={(e) => {
-            const value = e.target.value
-            setWhisperModelDir(value)
-            scheduleConfigSave('whisperModelDir', () => configService.setWhisperModelDir(value))
-          }}
-        />
-        <div className="btn-row">
-          <button className="btn btn-secondary" onClick={handleSelectWhisperModelDir}><FolderOpen size={16} /> 选择目录</button>
-          <button className="btn btn-secondary" onClick={handleResetWhisperModelDir}><RotateCcw size={16} /> 默认目录</button>
-        </div>
-        <div className="whisper-status-line">
-          <span className={`status ${whisperModelStatus?.exists ? 'ok' : 'warn'}`}>
-            {whisperModelStatus?.exists ? '已下载 (240 MB)' : '未下载 (240 MB)'}
-          </span>
-          {whisperModelStatus?.modelPath && <span className="path">{whisperModelStatus.modelPath}</span>}
-        </div>
-        {isWhisperDownloading ? (
-          <div className="whisper-progress">
-            <div className="progress-info">
-              <span>正在准备模型文件...</span>
-              <span className="percent">{whisperDownloadProgress.toFixed(0)}%</span>
             </div>
-            <div className="progress-bar-container">
-              <div className="progress-bar">
-                <div className="progress-fill" style={{ width: `${whisperDownloadProgress}%` }} />
-              </div>
+            <div className="model-actions">
+              {!whisperModelStatus?.exists && !isWhisperDownloading && (
+                <button
+                  className="btn-download"
+                  onClick={handleDownloadWhisperModel}
+                >
+                  <Download size={16} /> 下载模型
+                </button>
+              )}
+              {isWhisperDownloading && (
+                <div className="download-status">
+                  <div className="status-header">
+                    <span className="percent">{Math.round(whisperDownloadProgress)}%</span>
+                    {whisperProgressData.total > 0 && (
+                      <span className="details">
+                        {formatBytes(whisperProgressData.downloaded)} / {formatBytes(whisperProgressData.total)}
+                        <span className="speed">({formatBytes(whisperProgressData.speed)}/s)</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="progress-bar-mini">
+                    <div className="fill" style={{ width: `${whisperDownloadProgress}%` }}></div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        ) : (
-          <button className="btn btn-primary btn-download-model" onClick={handleDownloadWhisperModel}>
-            <Download size={18} /> 下载模型
-          </button>
-        )}
+
+          <div className="sub-setting">
+            <div className="sub-label">自定义模型目录</div>
+            <div className="path-selector">
+              <input
+                type="text"
+                value={whisperModelDir}
+                readOnly
+                placeholder="默认目录"
+              />
+              <button className="btn-icon" onClick={handleSelectWhisperModelDir} title="选择目录">
+                <FolderOpen size={18} />
+              </button>
+              {whisperModelDir && (
+                <button className="btn-icon danger" onClick={handleResetWhisperModelDir} title="重置为默认">
+                  <RotateCcw size={18} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="form-group">
+        <label>AI 对话模型 (Llama)</label>
+        <span className="form-hint">用于 AI 助手对话功能</span>
+        <div className="setting-control vertical has-border">
+          <div className="model-status-card">
+            <div className="model-info">
+              <div className="model-name">Qwen3 4B (Preset) (~2.6GB)</div>
+              <div className="model-path">
+                {llamaModelStatus?.exists ? (
+                  <span className="status-indicator success"><Check size={14} /> 已安装</span>
+                ) : (
+                  <span className="status-indicator warning">未安装</span>
+                )}
+                {llamaModelStatus?.path && <div className="path-text" title={llamaModelStatus.path}>{llamaModelStatus.path}</div>}
+              </div>
+            </div>
+            <div className="model-actions">
+              {!llamaModelStatus?.exists && !isLlamaDownloading && (
+                <button
+                  className="btn-download"
+                  onClick={handleDownloadLlamaModel}
+                >
+                  <Download size={16} /> 下载模型
+                </button>
+              )}
+              {isLlamaDownloading && (
+                <div className="download-status">
+                  <div className="status-header">
+                    <span className="percent">{Math.floor(llamaDownloadProgress)}%</span>
+                    <span className="metrics">
+                      {formatBytes(llamaProgressData.downloaded)} / {formatBytes(llamaProgressData.total)}
+                      <span className="speed">({formatBytes(llamaProgressData.speed)}/s)</span>
+                    </span>
+                  </div>
+                  <div className="progress-bar-mini">
+                    <div className="fill" style={{ width: `${llamaDownloadProgress}%` }}></div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="form-group">
+        <label>自动转文字</label>
+        <span className="form-hint">收到语音消息时自动转换为文字</span>
+        <div className="log-toggle-line">
+          <span className="log-status">{autoTranscribeVoice ? '已开启' : '已关闭'}</span>
+          <label className="switch">
+            <input
+              type="checkbox"
+              className="switch-input"
+              checked={autoTranscribeVoice}
+              onChange={(e) => {
+                setAutoTranscribeVoice(e.target.checked)
+                configService.setAutoTranscribeVoice(e.target.checked)
+              }}
+            />
+            <span className="switch-slider"></span>
+          </label>
+        </div>
       </div>
     </div>
   )
@@ -1958,7 +2072,7 @@ function SettingsPage() {
         {activeTab === 'appearance' && renderAppearanceTab()}
         {activeTab === 'notification' && renderNotificationTab()}
         {activeTab === 'database' && renderDatabaseTab()}
-        {activeTab === 'whisper' && renderWhisperTab()}
+        {activeTab === 'models' && renderModelsTab()}
         {activeTab === 'export' && renderExportTab()}
         {activeTab === 'cache' && renderCacheTab()}
         {activeTab === 'security' && renderSecurityTab()}
