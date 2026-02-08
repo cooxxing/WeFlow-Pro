@@ -26,13 +26,17 @@ export interface DualReportStats {
   friendTopEmojiMd5?: string
   myTopEmojiUrl?: string
   friendTopEmojiUrl?: string
+  myTopEmojiCount?: number
+  friendTopEmojiCount?: number
 }
 
 export interface DualReportData {
   year: number
   selfName: string
+  selfAvatarUrl?: string
   friendUsername: string
   friendName: string
+  friendAvatarUrl?: string
   firstChat: DualReportFirstChat | null
   firstChatMessages?: DualReportMessage[]
   yearFirstChat?: {
@@ -276,6 +280,18 @@ class DualReportService {
       if (myName === rawWxid && cleanedWxid && cleanedWxid !== rawWxid) {
         myName = await this.getDisplayName(cleanedWxid, rawWxid)
       }
+      const avatarCandidates = Array.from(new Set([
+        friendUsername,
+        rawWxid,
+        cleanedWxid
+      ].filter(Boolean) as string[]))
+      let selfAvatarUrl: string | undefined
+      let friendAvatarUrl: string | undefined
+      const avatarResult = await wcdbService.getAvatarUrls(avatarCandidates)
+      if (avatarResult.success && avatarResult.map) {
+        selfAvatarUrl = avatarResult.map[rawWxid] || avatarResult.map[cleanedWxid]
+        friendAvatarUrl = avatarResult.map[friendUsername]
+      }
 
       this.reportProgress('获取首条聊天记录...', 15, onProgress)
       const firstRows = await this.getFirstMessages(friendUsername, 3, 0, 0)
@@ -391,6 +407,8 @@ class DualReportService {
       stats.myTopEmojiUrl = myTopEmojiUrl
       stats.friendTopEmojiMd5 = friendTopEmojiMd5
       stats.friendTopEmojiUrl = friendTopEmojiUrl
+      if (myTopCount >= 0) stats.myTopEmojiCount = myTopCount
+      if (friendTopCount >= 0) stats.friendTopEmojiCount = friendTopCount
 
       const topPhrases = (cppData.phrases || []).map((p: any) => ({
         phrase: p.phrase,
@@ -401,8 +419,10 @@ class DualReportService {
       const reportData: DualReportData = {
         year: reportYear,
         selfName: myName,
+        selfAvatarUrl,
         friendUsername,
         friendName,
+        friendAvatarUrl,
         firstChat,
         firstChatMessages,
         yearFirstChat,
