@@ -9,12 +9,12 @@ import {
   Eye, EyeOff, FolderSearch, FolderOpen, Search, Copy,
   RotateCcw, Trash2, Plug, Check, Sun, Moon,
   Palette, Database, Download, HardDrive, Info, RefreshCw, ChevronDown, Mic,
-  ShieldCheck, Fingerprint, Lock, KeyRound, Bell, Globe
+  ShieldCheck, Fingerprint, Lock, KeyRound, Bell, Globe, BarChart2
 } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import './SettingsPage.scss'
 
-type SettingsTab = 'appearance' | 'notification' | 'database' | 'models' | 'export' | 'cache' | 'api' | 'security' | 'about'
+type SettingsTab = 'appearance' | 'notification' | 'database' | 'models' | 'export' | 'cache' | 'api' | 'security' | 'about' | 'analytics'
 
 const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: 'appearance', label: '外观', icon: Palette },
@@ -24,6 +24,8 @@ const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: 'export', label: '导出', icon: Download },
   { id: 'cache', label: '缓存', icon: HardDrive },
   { id: 'api', label: 'API 服务', icon: Globe },
+
+  { id: 'analytics', label: '分析', icon: BarChart2 },
   { id: 'security', label: '安全', icon: ShieldCheck },
   { id: 'about', label: '关于', icon: Info }
 ]
@@ -108,6 +110,9 @@ function SettingsPage() {
   const [filterSearchKeyword, setFilterSearchKeyword] = useState('')
   const [filterModeDropdownOpen, setFilterModeDropdownOpen] = useState(false)
   const [positionDropdownOpen, setPositionDropdownOpen] = useState(false)
+
+  const [wordCloudExcludeWords, setWordCloudExcludeWords] = useState<string[]>([])
+  const [excludeWordsInput, setExcludeWordsInput] = useState('')
 
 
 
@@ -301,6 +306,10 @@ function SettingsPage() {
       setNotificationPosition(savedNotificationPosition)
       setNotificationFilterMode(savedNotificationFilterMode)
       setNotificationFilterList(savedNotificationFilterList)
+
+      const savedExcludeWords = await configService.getWordCloudExcludeWords()
+      setWordCloudExcludeWords(savedExcludeWords)
+      setExcludeWordsInput(savedExcludeWords.join('\n'))
 
       // 如果语言列表为空，保存默认值
       if (!savedTranscribeLanguages || savedTranscribeLanguages.length === 0) {
@@ -1863,13 +1872,13 @@ function SettingsPage() {
   // HTTP API 服务控制
   const handleToggleApi = async () => {
     if (isTogglingApi) return
-    
+
     // 启动时显示警告弹窗
     if (!httpApiRunning) {
       setShowApiWarning(true)
       return
     }
-    
+
     setIsTogglingApi(true)
     try {
       await window.electronAPI.http.stop()
@@ -2052,6 +2061,56 @@ function SettingsPage() {
       showMessage('密码更新失败', false)
     }
   }
+
+  const renderAnalyticsTab = () => (
+    <div className="tab-content">
+      <div className="settings-section">
+        <h2>分析设置</h2>
+        <div className="setting-item">
+          <div className="setting-label">
+            <span>词云排除词</span>
+            <span className="setting-desc">输入不需要在词云和常用语中显示的词语，用换行分隔</span>
+          </div>
+          <div className="setting-control" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '8px' }}>
+            <textarea
+              className="form-input"
+              style={{ width: '100%', height: '200px', fontFamily: 'monospace' }}
+              value={excludeWordsInput}
+              onChange={(e) => setExcludeWordsInput(e.target.value)}
+              placeholder="例如：
+第一个词
+第二个词
+第三个词"
+            />
+            <div className="button-group">
+              <button
+                className="btn btn-primary"
+                onClick={async () => {
+                  const words = excludeWordsInput.split('\n').map(w => w.trim()).filter(w => w.length > 0)
+                  // 去重
+                  const uniqueWords = Array.from(new Set(words))
+                  await configService.setWordCloudExcludeWords(uniqueWords)
+                  setWordCloudExcludeWords(uniqueWords)
+                  setExcludeWordsInput(uniqueWords.join('\n'))
+                  // Show success toast or feedback if needed (optional)
+                }}
+              >
+                保存排除列表
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setExcludeWordsInput(wordCloudExcludeWords.join('\n'))
+                }}
+              >
+                重置
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 
   const renderSecurityTab = () => (
     <div className="tab-content">
@@ -2242,6 +2301,7 @@ function SettingsPage() {
         {activeTab === 'export' && renderExportTab()}
         {activeTab === 'cache' && renderCacheTab()}
         {activeTab === 'api' && renderApiTab()}
+        {activeTab === 'analytics' && renderAnalyticsTab()}
         {activeTab === 'security' && renderSecurityTab()}
         {activeTab === 'about' && renderAboutTab()}
       </div>

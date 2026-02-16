@@ -1,7 +1,9 @@
 .annual-report-window {
   // 使用全局主题变量，带回退值
   --ar-primary: var(--primary, #07C160);
+  --ar-primary-rgb: var(--primary-rgb, 7, 193, 96);
   --ar-accent: var(--accent, #F2AA00);
+  --ar-accent-rgb: 242, 170, 0;
   --ar-text-main: var(--text-primary, #222222);
   --ar-text-sub: var(--text-secondary, #555555);
   --ar-bg-color: var(--bg-primary, #F9F8F6);
@@ -53,7 +55,7 @@
 .deco-circle {
   position: absolute;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--primary) 3%, transparent);
+  background: rgba(var(--ar-primary-rgb), 0.03);
   backdrop-filter: blur(40px);
   -webkit-backdrop-filter: blur(40px);
   border: 1px solid var(--border-color);
@@ -253,6 +255,11 @@
   .gold {
     background: transparent !important;
     box-shadow: none !important;
+  }
+
+  .deco-circle {
+    background: transparent !important;
+    border: none !important;
   }
 }
 

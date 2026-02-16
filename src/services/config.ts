@@ -44,7 +44,10 @@ export const CONFIG_KEYS = {
   NOTIFICATION_ENABLED: 'notificationEnabled',
   NOTIFICATION_POSITION: 'notificationPosition',
   NOTIFICATION_FILTER_MODE: 'notificationFilterMode',
-  NOTIFICATION_FILTER_LIST: 'notificationFilterList'
+  NOTIFICATION_FILTER_LIST: 'notificationFilterList',
+
+  // 词云
+  WORD_CLOUD_EXCLUDE_WORDS: 'wordCloudExcludeWords'
 } as const
 
 export interface WxidConfig {
@@ -464,4 +467,15 @@ export async function getNotificationFilterList(): Promise<string[]> {
 // 设置通知过滤列表
 export async function setNotificationFilterList(list: string[]): Promise<void> {
   await config.set(CONFIG_KEYS.NOTIFICATION_FILTER_LIST, list)
+}
+
+// 获取词云排除词列表
+export async function getWordCloudExcludeWords(): Promise<string[]> {
+  const value = await config.get(CONFIG_KEYS.WORD_CLOUD_EXCLUDE_WORDS)
+  return Array.isArray(value) ? value : []
+}
+
+// 设置词云排除词列表
+export async function setWordCloudExcludeWords(words: string[]): Promise<void> {
+  await config.set(CONFIG_KEYS.WORD_CLOUD_EXCLUDE_WORDS, words)
 }

@@ -116,7 +116,7 @@ class AnnualReportService {
     }
     const suffixMatch = trimmed.match(/^(.+)_([a-zA-Z0-9]{4})$/)
     const cleaned = suffixMatch ? suffixMatch[1] : trimmed
-    
+
     return cleaned
   }
 
@@ -499,7 +499,7 @@ class AnnualReportService {
         }
       }
 
-      this.reportProgress('加载扩展统计... (初始化)', 30, onProgress)
+      this.reportProgress('加载扩展统计...', 30, onProgress)
       const extras = await wcdbService.getAnnualReportExtras(sessionIds, actualStartTime, actualEndTime, peakDayBegin, peakDayEnd)
       if (extras.success && extras.data) {
         this.reportProgress('加载扩展统计... (解析热力图)', 32, onProgress)

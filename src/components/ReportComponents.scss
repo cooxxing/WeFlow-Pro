@@ -87,8 +87,8 @@
         position: absolute;
         inset: -6%;
         background:
-            radial-gradient(circle at 35% 45%, color-mix(in srgb, var(--primary, #07C160) 12%, transparent), transparent 55%),
-            radial-gradient(circle at 65% 50%, color-mix(in srgb, var(--accent, #F2AA00) 10%, transparent), transparent 58%),
+            radial-gradient(circle at 35% 45%, rgba(var(--ar-primary-rgb, 7, 193, 96), 0.12), transparent 55%),
+            radial-gradient(circle at 65% 50%, rgba(var(--ar-accent-rgb, 242, 170, 0), 0.10), transparent 58%),
             radial-gradient(circle at 50% 65%, var(--bg-tertiary, rgba(0, 0, 0, 0.04)), transparent 60%);
         filter: blur(18px);
         border-radius: 50%;

@@ -57,6 +57,8 @@ interface DualReportData {
     friendTopEmojiCount?: number
   }
   topPhrases: Array<{ phrase: string; count: number }>
+  myExclusivePhrases: Array<{ phrase: string; count: number }>
+  friendExclusivePhrases: Array<{ phrase: string; count: number }>
   heatmap?: number[][]
   initiative?: { initiated: number; received: number }
   response?: { avg: number; fastest: number; slowest: number; count: number }
@@ -72,6 +74,7 @@ function DualReportWindow() {
   const [loadingProgress, setLoadingProgress] = useState(0)
   const [myEmojiUrl, setMyEmojiUrl] = useState<string | null>(null)
   const [friendEmojiUrl, setFriendEmojiUrl] = useState<string | null>(null)
+  const [activeWordCloudTab, setActiveWordCloudTab] = useState<'shared' | 'my' | 'friend'>('shared')
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.hash.split('?')[1] || '')
@@ -584,10 +587,48 @@ function DualReportWindow() {
             </section>
           )}
 
-          <section className="section">
+          <section className="section word-cloud-section">
             <div className="label-text">常用语</div>
             <h2 className="hero-title">{yearTitle}常用语</h2>
-            <ReportWordCloud words={reportData.topPhrases} />
+
+            <div className="word-cloud-tabs">
+              <button
+                className={`tab-item ${activeWordCloudTab === 'shared' ? 'active' : ''}`}
+                onClick={() => setActiveWordCloudTab('shared')}
+              >
+                共用词汇
+              </button>
+              <button
+                className={`tab-item ${activeWordCloudTab === 'my' ? 'active' : ''}`}
+                onClick={() => setActiveWordCloudTab('my')}
+              >
+                我的专属
+              </button>
+              <button
+                className={`tab-item ${activeWordCloudTab === 'friend' ? 'active' : ''}`}
+                onClick={() => setActiveWordCloudTab('friend')}
+              >
+                TA的专属
+              </button>
+            </div>
+
+            <div className={`word-cloud-container fade-in ${activeWordCloudTab}`}>
+              {activeWordCloudTab === 'shared' && <ReportWordCloud words={reportData.topPhrases} />}
+              {activeWordCloudTab === 'my' && (
+                reportData.myExclusivePhrases && reportData.myExclusivePhrases.length > 0 ? (
+                  <ReportWordCloud words={reportData.myExclusivePhrases} />
+                ) : (
+                  <div className="empty-state">暂无专属词汇</div>
+                )
+              )}
+              {activeWordCloudTab === 'friend' && (
+                reportData.friendExclusivePhrases && reportData.friendExclusivePhrases.length > 0 ? (
+                  <ReportWordCloud words={reportData.friendExclusivePhrases} />
+                ) : (
+                  <div className="empty-state">暂无专属词汇</div>
+                )
+              )}
+            </div>
           </section>
 
           <section className="section">

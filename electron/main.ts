@@ -1195,6 +1195,7 @@ function registerIpcHandlers() {
     const logEnabled = cfg.get('logEnabled')
     const friendUsername = payload?.friendUsername
     const year = payload?.year ?? 0
+    const excludeWords = cfg.get('wordCloudExcludeWords') || []
 
     if (!friendUsername) {
       return { success: false, error: '缺少好友用户名' }
@@ -1209,7 +1210,7 @@ function registerIpcHandlers() {
 
     return await new Promise((resolve) => {
       const worker = new Worker(workerPath, {
-        workerData: { year, friendUsername, dbPath, decryptKey, myWxid: wxid, resourcesPath, userDataPath, logEnabled }
+        workerData: { year, friendUsername, dbPath, decryptKey, myWxid: wxid, resourcesPath, userDataPath, logEnabled, excludeWords }
       })
 
       const cleanup = () => {

@@ -11,6 +11,7 @@ interface WorkerConfig {
   resourcesPath?: string
   userDataPath?: string
   logEnabled?: boolean
+  excludeWords?: string[]
 }
 
 const config = workerData as WorkerConfig
@@ -29,6 +30,7 @@ async function run() {
     dbPath: config.dbPath,
     decryptKey: config.decryptKey,
     wxid: config.myWxid,
+    excludeWords: config.excludeWords,
     onProgress: (status: string, progress: number) => {
       parentPort?.postMessage({
         type: 'dualReport:progress',

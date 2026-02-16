@@ -906,4 +906,79 @@
       min-width: 56px;
     }
   }
+
+  // Word Cloud Tabs
+  .word-cloud-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+  }
+
+  .word-cloud-tabs {
+    display: flex;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    padding: 4px;
+    border-radius: 12px;
+    margin: 0 auto 32px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .tab-item {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: var(--ar-text-sub);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+
+    &:hover {
+      color: var(--ar-text-main);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    &.active {
+      background: var(--ar-card-bg);
+      color: var(--ar-primary);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      font-weight: 600;
+    }
+  }
+
+  .word-cloud-container {
+    width: 100%;
+
+    &.fade-in {
+      animation: fadeIn 0.4s ease-out;
+    }
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px 0;
+    color: var(--ar-text-sub);
+    opacity: 0.6;
+    font-size: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 16px;
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+    margin-top: 20px;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }

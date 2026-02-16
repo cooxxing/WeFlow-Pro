@@ -1,6 +1,7 @@
 import { parentPort } from 'worker_threads'
 import { wcdbService } from './wcdbService'
 
+
 export interface DualReportMessage {
   content: string
   isSentByMe: boolean
@@ -58,6 +59,8 @@ export interface DualReportData {
   } | null
   stats: DualReportStats
   topPhrases: Array<{ phrase: string; count: number }>
+  myExclusivePhrases: Array<{ phrase: string; count: number }>
+  friendExclusivePhrases: Array<{ phrase: string; count: number }>
   heatmap?: number[][]
   initiative?: { initiated: number; received: number }
   response?: { avg: number; fastest: number; count: number }
@@ -499,10 +502,11 @@ class DualReportService {
     dbPath: string
     decryptKey: string
     wxid: string
+    excludeWords?: string[]
     onProgress?: (status: string, progress: number) => void
   }): Promise<{ success: boolean; data?: DualReportData; error?: string }> {
     try {
-      const { year, friendUsername, dbPath, decryptKey, wxid, onProgress } = params
+      const { year, friendUsername, dbPath, decryptKey, wxid, excludeWords, onProgress } = params
       this.reportProgress('正在连接数据库...', 5, onProgress)
       const conn = await this.ensureConnectedWithConfig(dbPath, decryptKey, wxid)
       if (!conn.success || !conn.cleanedWxid || !conn.rawWxid) return { success: false, error: conn.error }
@@ -714,10 +718,57 @@ class DualReportService {
       if (myTopCount >= 0) stats.myTopEmojiCount = myTopCount
       if (friendTopCount >= 0) stats.friendTopEmojiCount = friendTopCount
 
-      const topPhrases = (cppData.phrases || []).map((p: any) => ({
+      if (friendTopCount >= 0) stats.friendTopEmojiCount = friendTopCount
+
+      const excludeSet = new Set(excludeWords || [])
+
+      const filterPhrases = (list: any[]) => {
+        return (list || []).filter((p: any) => !excludeSet.has(p.phrase))
+      }
+
+      const cleanPhrases = filterPhrases(cppData.phrases)
+      const cleanMyPhrases = filterPhrases(cppData.myPhrases)
+      const cleanFriendPhrases = filterPhrases(cppData.friendPhrases)
+
+      const topPhrases = cleanPhrases.map((p: any) => ({
         phrase: p.phrase,
         count: p.count
       }))
+
+      // 计算专属词汇：一方频繁使用而另一方很少使用的词
+      const myPhraseMap = new Map<string, number>()
+      const friendPhraseMap = new Map<string, number>()
+      for (const p of cleanMyPhrases) {
+        myPhraseMap.set(p.phrase, p.count)
+      }
+      for (const p of cleanFriendPhrases) {
+        friendPhraseMap.set(p.phrase, p.count)
+      }
+
+      // 专属词汇：该方使用占比 >= 75% 且至少出现 2 次
+      const myExclusivePhrases: Array<{ phrase: string; count: number }> = []
+      const friendExclusivePhrases: Array<{ phrase: string; count: number }> = []
+
+      for (const [phrase, myCount] of myPhraseMap) {
+        const friendCount = friendPhraseMap.get(phrase) || 0
+        const total = myCount + friendCount
+        if (myCount >= 2 && total > 0 && myCount / total >= 0.75) {
+          myExclusivePhrases.push({ phrase, count: myCount })
+        }
+      }
+      for (const [phrase, friendCount] of friendPhraseMap) {
+        const myCount = myPhraseMap.get(phrase) || 0
+        const total = myCount + friendCount
+        if (friendCount >= 2 && total > 0 && friendCount / total >= 0.75) {
+          friendExclusivePhrases.push({ phrase, count: friendCount })
+        }
+      }
+
+      // 按频率排序，取前 20
+      myExclusivePhrases.sort((a, b) => b.count - a.count)
+      friendExclusivePhrases.sort((a, b) => b.count - a.count)
+      if (myExclusivePhrases.length > 20) myExclusivePhrases.length = 20
+      if (friendExclusivePhrases.length > 20) friendExclusivePhrases.length = 20
 
       const reportData: DualReportData = {
         year: reportYear,
@@ -731,6 +782,8 @@ class DualReportService {
         yearFirstChat,
         stats,
         topPhrases,
+        myExclusivePhrases,
+        friendExclusivePhrases,
         heatmap: cppData.heatmap,
         initiative: cppData.initiative,
         response: cppData.response,

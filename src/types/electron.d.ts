@@ -397,16 +397,15 @@ export interface ElectronAPI {
           myTopEmojiMd5?: string
           friendTopEmojiMd5?: string
           myTopEmojiUrl?: string
-          friendTopEmojiUrl?: string
-          myTopEmojiCount?: number
-          friendTopEmojiCount?: number
+          topPhrases: Array<{ phrase: string; count: number }>
+          myExclusivePhrases: Array<{ phrase: string; count: number }>
+          friendExclusivePhrases: Array<{ phrase: string; count: number }>
+          heatmap?: number[][]
+          initiative?: { initiated: number; received: number }
+          response?: { avg: number; fastest: number; count: number }
+          monthly?: Record<string, number>
+          streak?: { days: number; startDate: string; endDate: string }
         }
-        topPhrases: Array<{ phrase: string; count: number }>
-        heatmap?: number[][]
-        initiative?: { initiated: number; received: number }
-        response?: { avg: number; fastest: number; count: number }
-        monthly?: Record<string, number>
-        streak?: { days: number; startDate: string; endDate: string }
       }
       error?: string
     }>

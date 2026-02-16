@@ -42,6 +42,7 @@ interface ConfigSchema {
   notificationPosition: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left'
   notificationFilterMode: 'all' | 'whitelist' | 'blacklist'
   notificationFilterList: string[]
+  wordCloudExcludeWords: string[]
 }
 
 export class ConfigService {
@@ -94,7 +95,8 @@ export class ConfigService {
         notificationEnabled: true,
         notificationPosition: 'top-right',
         notificationFilterMode: 'all',
-        notificationFilterList: []
+        notificationFilterList: [],
+        wordCloudExcludeWords: []
       }
     })
   }
