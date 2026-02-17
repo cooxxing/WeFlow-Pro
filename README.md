@@ -35,6 +35,7 @@ WeFlow 是一个**完全本地**的微信**实时**聊天记录查看、分析�
 ## 主要功能
 
 - 本地实时查看聊天记录
+- 朋友圈图片、视频、**实况**的预览和解密
 - 统计分析与群聊画像
 - 年度报告与可视化概览
 - 导出聊天记录为 HTML 等格式
@@ -86,6 +87,7 @@ npm run build
 ## 致谢
 
 - [密语 CipherTalk](https://github.com/ILoveBingLu/miyu) 为本项目提供了基础框架
+- [WeChat-Channels-Video-File-Decryption](https://github.com/Evil0ctal/WeChat-Channels-Video-File-Decryption) 提供了视频解密相关的技术参考
 
 ## 支持我们
 
