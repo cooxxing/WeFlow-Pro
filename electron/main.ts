@@ -799,6 +799,14 @@ function registerIpcHandlers() {
     return chatService.getNewMessages(sessionId, minTime, limit)
   })
 
+  ipcMain.handle('chat:updateMessage', async (_, sessionId: string, localId: number, newContent: string) => {
+    return chatService.updateMessage(sessionId, localId, newContent)
+  })
+
+  ipcMain.handle('chat:deleteMessage', async (_, sessionId: string, localId: number, createTime: number, dbPathHint?: string) => {
+    return chatService.deleteMessage(sessionId, localId, createTime, dbPathHint)
+  })
+
   ipcMain.handle('chat:getContact', async (_, username: string) => {
     return await chatService.getContact(username)
   })

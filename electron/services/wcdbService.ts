@@ -431,6 +431,20 @@ export class WcdbService {
     return this.callWorker('verifyUser', { message, hwnd })
   }
 
+  /**
+   * 修改消息内容
+   */
+  async updateMessage(sessionId: string, localId: number, newContent: string): Promise<{ success: boolean; error?: string }> {
+    return this.callWorker('updateMessage', { sessionId, localId, newContent })
+  }
+
+  /**
+   * 删除消息
+   */
+  async deleteMessage(sessionId: string, localId: number, createTime: number, dbPathHint?: string): Promise<{ success: boolean; error?: string }> {
+    return this.callWorker('deleteMessage', { sessionId, localId, createTime, dbPathHint })
+  }
+
 
 
 }

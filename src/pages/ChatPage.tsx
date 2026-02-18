@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Search, MessageSquare, AlertCircle, Loader2, RefreshCw, X, ChevronDown, Info, Calendar, Database, Hash, Play, Pause, Image as ImageIcon, Link, Mic, CheckCircle, Copy, Check, Download, BarChart3 } from 'lucide-react'
+import { Search, MessageSquare, AlertCircle, Loader2, RefreshCw, X, ChevronDown, Info, Calendar, Database, Hash, Play, Pause, Image as ImageIcon, Link, Mic, CheckCircle, Copy, Check, CheckSquare, Download, BarChart3, Edit2, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { useChatStore } from '../stores/chatStore'
@@ -18,6 +18,102 @@ const SYSTEM_MESSAGE_TYPES = [
   266287972401, // 拍一拍
 ]
 
+interface XmlField {
+  key: string;
+  value: string;
+  type: 'attr' | 'node';
+  tagName?: string;
+  path: string;
+}
+
+// 尝试解析 XML 为可编辑字段
+function parseXmlToFields(xml: string): XmlField[] {
+  const fields: XmlField[] = []
+  if (!xml || !xml.includes('<')) return []
+  try {
+    const parser = new DOMParser()
+    // 包装一下确保是单一根节点
+    const wrappedXml = xml.trim().startsWith('<?xml') ? xml : `<root>${xml}</root>`
+    const doc = parser.parseFromString(wrappedXml, 'text/xml')
+    const errorNode = doc.querySelector('parsererror')
+    if (errorNode) return []
+
+    const walk = (node: Node, path: string = '') => {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const element = node as Element
+        if (element.tagName === 'root') {
+          node.childNodes.forEach((child, index) => walk(child, path))
+          return
+        }
+
+        const currentPath = path ? `${path} > ${element.tagName}` : element.tagName
+
+        for (let i = 0; i < element.attributes.length; i++) {
+          const attr = element.attributes[i]
+          fields.push({
+            key: attr.name,
+            value: attr.value,
+            type: 'attr',
+            tagName: element.tagName,
+            path: `${currentPath}[@${attr.name}]`
+          })
+        }
+
+        if (element.childNodes.length === 1 && element.childNodes[0].nodeType === Node.TEXT_NODE) {
+          const text = element.textContent?.trim() || ''
+          if (text) {
+            fields.push({
+              key: element.tagName,
+              value: text,
+              type: 'node',
+              path: currentPath
+            })
+          }
+        } else {
+          node.childNodes.forEach((child, index) => walk(child, `${currentPath}[${index}]`))
+        }
+      }
+    }
+    doc.childNodes.forEach((node, index) => walk(node, ''))
+  } catch (e) {
+    console.warn('[XML Parse] Failed:', e)
+  }
+  return fields
+}
+
+// 将编辑后的字段同步回 XML
+function updateXmlWithFields(xml: string, fields: XmlField[]): string {
+  try {
+    const parser = new DOMParser()
+    const wrappedXml = xml.trim().startsWith('<?xml') ? xml : `<root>${xml}</root>`
+    const doc = parser.parseFromString(wrappedXml, 'text/xml')
+    const errorNode = doc.querySelector('parsererror')
+    if (errorNode) return xml
+
+    fields.forEach(f => {
+      if (f.type === 'attr') {
+        const elements = doc.getElementsByTagName(f.tagName!)
+        if (elements.length > 0) {
+          elements[0].setAttribute(f.key, f.value)
+        }
+      } else {
+        const elements = doc.getElementsByTagName(f.key)
+        if (elements.length > 0 && (elements[0].childNodes.length <= 1)) {
+          elements[0].textContent = f.value
+        }
+      }
+    })
+
+    let result = new XMLSerializer().serializeToString(doc)
+    if (!xml.trim().startsWith('<?xml')) {
+      result = result.replace('<root>', '').replace('</root>', '').replace('<root/>', '')
+    }
+    return result
+  } catch (e) {
+    return xml
+  }
+}
+
 // 判断是否为系统消息
 function isSystemMessage(localType: number): boolean {
   return SYSTEM_MESSAGE_TYPES.includes(localType)
@@ -30,6 +126,12 @@ function formatFileSize(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+}
+
+// 清理消息内容的辅助函数
+function cleanMessageContent(content: string): string {
+  if (!content) return ''
+  return content.trim()
 }
 
 interface ChatPageProps {
@@ -182,6 +284,18 @@ function ChatPage(_props: ChatPageProps) {
   const [showVoiceTranscribeDialog, setShowVoiceTranscribeDialog] = useState(false)
   const [pendingVoiceTranscriptRequest, setPendingVoiceTranscriptRequest] = useState<{ sessionId: string; messageId: string } | null>(null)
 
+  // 消息右键菜单
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number, message: Message } | null>(null)
+  const [editingMessage, setEditingMessage] = useState<{ message: Message, content: string } | null>(null)
+
+  // 多选模式
+  const [isSelectionMode, setIsSelectionMode] = useState(false)
+  const [selectedMessages, setSelectedMessages] = useState<Set<number>>(new Set())
+
+  // 编辑消息额外状态
+  const [editMode, setEditMode] = useState<'raw' | 'fields'>('raw')
+  const [tempFields, setTempFields] = useState<XmlField[]>([])
+
   // 批量语音转文字相关状态（进度/结果 由全局 store 管理）
   const { isBatchTranscribing, progress: batchTranscribeProgress, showToast: showBatchProgress, startTranscribe, updateProgress, finishTranscribe, setShowToast: setShowBatchProgress } = useBatchTranscribeStore()
   const [showBatchConfirm, setShowBatchConfirm] = useState(false)
@@ -189,6 +303,19 @@ function ChatPage(_props: ChatPageProps) {
   const [batchVoiceMessages, setBatchVoiceMessages] = useState<Message[] | null>(null)
   const [batchVoiceDates, setBatchVoiceDates] = useState<string[]>([])
   const [batchSelectedDates, setBatchSelectedDates] = useState<Set<string>>(new Set())
+
+  // 批量删除相关状态
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteProgress, setDeleteProgress] = useState({ current: 0, total: 0 })
+  const [cancelDeleteRequested, setCancelDeleteRequested] = useState(false)
+
+  // 自定义删除确认对话框
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    show: boolean;
+    mode: 'single' | 'batch';
+    message?: Message;
+    count?: number;
+  }>({ show: false, mode: 'single' })
 
   // 联系人信息加载控制
   const isEnrichingRef = useRef(false)
@@ -1394,13 +1521,302 @@ function ChatPage(_props: ChatPageProps) {
   const selectAllBatchDates = useCallback(() => setBatchSelectedDates(new Set(batchVoiceDates)), [batchVoiceDates])
   const clearAllBatchDates = useCallback(() => setBatchSelectedDates(new Set()), [])
 
+  const lastSelectedIdRef = useRef<number | null>(null)
+
+  const handleToggleSelection = useCallback((localId: number, isShiftKey: boolean = false) => {
+    setSelectedMessages(prev => {
+      const next = new Set(prev)
+
+      // Range selection with Shift key
+      if (isShiftKey && lastSelectedIdRef.current !== null && lastSelectedIdRef.current !== localId) {
+        const currentMsgs = useChatStore.getState().messages
+        const idx1 = currentMsgs.findIndex(m => m.localId === lastSelectedIdRef.current)
+        const idx2 = currentMsgs.findIndex(m => m.localId === localId)
+
+        if (idx1 !== -1 && idx2 !== -1) {
+          const start = Math.min(idx1, idx2)
+          const end = Math.max(idx1, idx2)
+          for (let i = start; i <= end; i++) {
+            next.add(currentMsgs[i].localId)
+          }
+        }
+      } else {
+        // Normal toggle
+        if (next.has(localId)) {
+          next.delete(localId)
+          lastSelectedIdRef.current = null // Reset last selection on uncheck? Or keep? Usually keep last interaction.
+        } else {
+          next.add(localId)
+          lastSelectedIdRef.current = localId
+        }
+      }
+      return next
+    })
+  }, [])
+
   const formatBatchDateLabel = useCallback((dateStr: string) => {
     const [y, m, d] = dateStr.split('-').map(Number)
     return `${y}年${m}月${d}日`
   }, [])
 
+  // 消息右键菜单处理
+  const handleContextMenu = useCallback((e: React.MouseEvent, message: Message) => {
+    e.preventDefault()
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      message
+    })
+  }, [])
+
+  // 关闭右键菜单
+  useEffect(() => {
+    const handleClick = () => {
+      setContextMenu(null)
+    }
+    window.addEventListener('click', handleClick)
+    return () => {
+      window.removeEventListener('click', handleClick)
+    }
+  }, [])
+
+  // 删除消息 - 触发确认弹窗
+  const handleDelete = useCallback((target: { message: Message } | null = null) => {
+    const msg = target?.message || contextMenu?.message
+    if (!currentSessionId || !msg) return
+
+    setDeleteConfirm({
+      show: true,
+      mode: 'single',
+      message: msg
+    })
+    setContextMenu(null)
+  }, [contextMenu, currentSessionId])
+
+  // 执行单条删除动作
+  const performSingleDelete = async (msg: Message) => {
+    try {
+      const dbPathHint = (msg as any)._db_path
+      const result = await (window as any).electronAPI.chat.deleteMessage(currentSessionId, msg.localId, msg.createTime, dbPathHint)
+      if (result.success) {
+        const currentMessages = useChatStore.getState().messages
+        const newMessages = currentMessages.filter(m => m.localId !== msg.localId)
+        useChatStore.getState().setMessages(newMessages)
+      } else {
+        alert('删除失败: ' + (result.error || '原因未知'))
+      }
+    } catch (e) {
+      console.error(e)
+      alert('删除异常: ' + String(e))
+    }
+  }
+
+  // 修改消息
+  const handleEditMessage = useCallback(() => {
+    if (contextMenu) {
+      // 允许编辑所有类型的消息
+      // 如果是文本消息(1)，使用 parsedContent
+      // 如果是其他类型(如系统消息 10000)，使用 rawContent 或 content 作为 XML 源码编辑
+      const isText = contextMenu.message.localType === 1
+      const rawXml = contextMenu.message.content || (contextMenu.message as any).rawContent || contextMenu.message.parsedContent || ''
+
+      const contentToEdit = isText
+        ? cleanMessageContent(contextMenu.message.parsedContent)
+        : rawXml
+
+      if (!isText) {
+        const fields = parseXmlToFields(rawXml)
+        setTempFields(fields)
+        setEditMode(fields.length > 0 ? 'fields' : 'raw')
+      } else {
+        setEditMode('raw')
+        setTempFields([])
+      }
+
+      setEditingMessage({
+        message: contextMenu.message,
+        content: contentToEdit
+      })
+      setContextMenu(null)
+    }
+  }, [contextMenu])
+
+  // 确认修改消息
+  const handleSaveEdit = useCallback(async () => {
+    if (editingMessage && currentSessionId) {
+      let finalContent = editingMessage.content
+
+      // 如果是字段编辑模式，先同步回 XML
+      if (editMode === 'fields' && tempFields.length > 0) {
+        finalContent = updateXmlWithFields(editingMessage.content, tempFields)
+      }
+
+      if (!finalContent.trim()) {
+        handleDelete({ message: editingMessage.message })
+        setEditingMessage(null)
+        return
+      }
+
+      try {
+        const result = await (window as any).electronAPI.chat.updateMessage(currentSessionId, editingMessage.message.localId, finalContent)
+        if (result.success) {
+          const currentMessages = useChatStore.getState().messages
+          const newMessages = currentMessages.map(m => {
+            if (m.localId === editingMessage.message.localId) {
+              return { ...m, parsedContent: finalContent, content: finalContent, rawContent: finalContent }
+            }
+            return m
+          })
+          useChatStore.getState().setMessages(newMessages)
+          setEditingMessage(null)
+        } else {
+          alert('修改失败: ' + result.error)
+        }
+      } catch (e) {
+        alert('修改异常: ' + String(e))
+      }
+    }
+  }, [editingMessage, currentSessionId, editMode, tempFields, handleDelete])
+
+  // 用于在异步循环中获取最新的取消状态
+  const cancelDeleteRef = useRef(false)
+
+  const handleBatchDelete = () => {
+    if (selectedMessages.size === 0) {
+      alert('请先选择要删除的消息')
+      return
+    }
+    if (!currentSessionId) return
+
+    setDeleteConfirm({
+      show: true,
+      mode: 'batch',
+      count: selectedMessages.size
+    })
+  }
+
+  const performBatchDelete = async () => {
+    setIsDeleting(true)
+    setDeleteProgress({ current: 0, total: selectedMessages.size })
+    setCancelDeleteRequested(false)
+    cancelDeleteRef.current = false
+
+    try {
+      const currentMessages = useChatStore.getState().messages
+      const selectedIds = Array.from(selectedMessages)
+      const deletedIds = new Set<number>()
+
+      for (let i = 0; i < selectedIds.length; i++) {
+        if (cancelDeleteRef.current) break
+
+        const id = selectedIds[i]
+        const msgObj = currentMessages.find(m => m.localId === id)
+        const dbPathHint = (msgObj as any)?._db_path
+        const createTime = msgObj?.createTime || 0
+
+        try {
+          const result = await (window as any).electronAPI.chat.deleteMessage(currentSessionId, id, createTime, dbPathHint)
+          if (result.success) {
+            deletedIds.add(id)
+          }
+        } catch (err) {
+          console.error(`删除消息 ${id} 失败:`, err)
+        }
+
+        setDeleteProgress({ current: i + 1, total: selectedIds.length })
+      }
+
+      const finalMessages = useChatStore.getState().messages.filter(m => !deletedIds.has(m.localId))
+      useChatStore.getState().setMessages(finalMessages)
+
+      setIsSelectionMode(false)
+      setSelectedMessages(new Set())
+
+      if (cancelDeleteRef.current) {
+        alert(`操作已中止。已删除 ${deletedIds.size} 条，剩余记录保留。`)
+      }
+    } catch (e) {
+      alert('批量删除出现错误: ' + String(e))
+      console.error(e)
+    } finally {
+      setIsDeleting(false)
+      setCancelDeleteRequested(false)
+      cancelDeleteRef.current = false
+    }
+  }
+
   return (
     <div className={`chat-page ${isResizing ? 'resizing' : ''}`}>
+      {/* 自定义删除确认对话框 */}
+      {deleteConfirm.show && (
+        <div className="delete-confirm-overlay">
+          <div className="delete-confirm-card">
+            <div className="confirm-icon">
+              <Trash2 size={32} color="var(--danger)" />
+            </div>
+            <div className="confirm-content">
+              <h3>确认删除</h3>
+              <p>
+                {deleteConfirm.mode === 'single'
+                  ? '确定要删除这条消息吗？此操作不可恢复。'
+                  : `确定要删除选中的 ${deleteConfirm.count} 条消息吗？`}
+              </p>
+            </div>
+            <div className="confirm-actions">
+              <button
+                className="btn-secondary"
+                onClick={() => setDeleteConfirm({ ...deleteConfirm, show: false })}
+              >
+                取消
+              </button>
+              <button
+                className="btn-danger-filled"
+                onClick={() => {
+                  setDeleteConfirm({ ...deleteConfirm, show: false });
+                  if (deleteConfirm.mode === 'single' && deleteConfirm.message) {
+                    performSingleDelete(deleteConfirm.message);
+                  } else if (deleteConfirm.mode === 'batch') {
+                    performBatchDelete();
+                  }
+                }}
+              >
+                确定删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 批量删除进度遮罩 */}
+      {isDeleting && (
+        <div className="delete-progress-overlay">
+          <div className="delete-progress-card">
+            <div className="progress-header">
+              <h3>正在彻底删除消息...</h3>
+              <span className="count">{deleteProgress.current} / {deleteProgress.total}</span>
+            </div>
+            <div className="progress-bar-container">
+              <div
+                className="progress-bar-fill"
+                style={{ width: `${(deleteProgress.current / deleteProgress.total) * 100}%` }}
+              />
+            </div>
+            <div className="progress-footer">
+              <p>请勿关闭应用或切换会话，确保所有副本都被清理。</p>
+              <button
+                className="cancel-delete-btn"
+                onClick={() => {
+                  setCancelDeleteRequested(true)
+                  cancelDeleteRef.current = true
+                }}
+                disabled={cancelDeleteRequested}
+              >
+                {cancelDeleteRequested ? '正在停止...' : '中止删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* 左侧会话列表 */}
       <div
         className="session-sidebar"
@@ -1659,6 +2075,10 @@ function ChatPage(_props: ChatPageProps) {
                         myAvatarUrl={myAvatarUrl}
                         isGroupChat={isGroupChat(currentSession.username)}
                         onRequireModelDownload={handleRequireModelDownload}
+                        onContextMenu={handleContextMenu}
+                        isSelectionMode={isSelectionMode}
+                        isSelected={selectedMessages.has(msg.localId)}
+                        onToggleSelection={handleToggleSelection}
                       />
                     </div>
                   )
@@ -1897,6 +2317,187 @@ function ChatPage(_props: ChatPageProps) {
         </div>,
         document.body
       )}
+      {/* 消息右键菜单 */}
+      {contextMenu && createPortal(
+        <>
+          <div className="context-menu-overlay" onClick={() => setContextMenu(null)}
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 9998 }} />
+          <div
+            className="context-menu"
+            style={{
+              position: 'fixed',
+              top: contextMenu.y,
+              left: contextMenu.x,
+              zIndex: 9999
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="menu-item" onClick={handleEditMessage}>
+              <Edit2 size={16} />
+              <span>{contextMenu.message.localType === 1 ? '修改消息' : '编辑源码'}</span>
+            </div>
+            <div className="menu-item" onClick={() => {
+              setIsSelectionMode(true)
+              setSelectedMessages(new Set([contextMenu.message.localId]))
+              setContextMenu(null)
+            }}>
+              <CheckSquare size={16} />
+              <span>多选</span>
+            </div>
+            <div className="menu-item delete" onClick={(e) => { e.stopPropagation(); handleDelete() }}>
+              <Trash2 size={16} />
+              <span>删除消息</span>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+
+      {/* 修改消息弹窗 */}
+      {editingMessage && createPortal(
+        <div className="modal-overlay">
+          <div className="modal-content edit-message-modal">
+            <div className="modal-header">
+              <h3 style={{ margin: 0 }}>{editingMessage.message.localType === 1 ? '修改消息' : '编辑消息'}</h3>
+              <button className="close-btn" onClick={() => setEditingMessage(null)}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+              {editMode === 'raw' ? (
+                <textarea
+                  className="edit-message-textarea"
+                  style={{ fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }}
+                  value={editingMessage.content}
+                  onChange={(e) => setEditingMessage({ ...editingMessage, content: e.target.value })}
+                  rows={editingMessage.message.localType === 1 ? 8 : 15}
+                />
+              ) : (
+                <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  {tempFields.map((field, idx) => (
+                    <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                          {field.tagName ? field.tagName : '节点'}: <span style={{ color: 'var(--primary)' }}>{field.key}</span>
+                        </span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-tertiary)', opacity: 0.6 }}>
+                          {field.type === 'attr' ? '属性' : '文本内容'}
+                        </span>
+                      </div>
+                      <input
+                        type="text"
+                        value={field.value}
+                        onChange={(e) => {
+                          const newFields = [...tempFields]
+                          newFields[idx].value = e.target.value
+                          setTempFields(newFields)
+                        }}
+                        style={{
+                          background: 'var(--bg-tertiary)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '6px',
+                          padding: '10px 12px',
+                          color: 'var(--text-primary)',
+                          fontSize: '13px',
+                          outline: 'none',
+                          width: '100%',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
+              <div>
+                {editingMessage.message.localType !== 1 && tempFields.length > 0 && (
+                  <button
+                    onClick={() => setEditMode(editMode === 'raw' ? 'fields' : 'raw')}
+                    style={{
+                      padding: '6px 12px',
+                      fontSize: '12px',
+                      borderRadius: '6px',
+                      border: '1px solid var(--border-color)',
+                      background: editMode === 'fields' ? 'var(--primary)' : 'transparent',
+                      color: editMode === 'fields' ? '#fff' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {editMode === 'raw' ? '可视化编辑' : '源码编辑'}
+                  </button>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button className="btn-secondary" onClick={() => setEditingMessage(null)}>取消</button>
+                <button className="btn-primary" onClick={handleSaveEdit}>保存</button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 底部多选操作栏 */}
+      {isSelectionMode && (
+        <div style={{
+          position: 'absolute',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          backgroundColor: 'var(--bg-secondary)', // Use system background
+          color: 'var(--text-primary)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+          borderRadius: '12px',
+          padding: '12px 24px',
+          display: 'flex',
+          gap: '20px',
+          zIndex: 1000,
+          alignItems: 'center',
+          border: '1px solid var(--border-color)', // Subtle border
+          backdropFilter: 'blur(10px)'
+        }}>
+          <span style={{ fontSize: '14px', fontWeight: 500 }}>已选 {selectedMessages.size} 条</span>
+          <div style={{ width: '1px', height: '16px', background: 'var(--border-color)' }}></div>
+          <button
+            className="btn-danger"
+            onClick={handleBatchDelete}
+            style={{
+              padding: '6px 16px',
+              borderRadius: '6px',
+              border: 'none',
+              backgroundColor: '#fa5151',
+              color: 'white',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: 500
+            }}
+          >
+            删除
+          </button>
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              setIsSelectionMode(false)
+              setSelectedMessages(new Set())
+            }}
+            style={{
+              padding: '6px 16px',
+              borderRadius: '6px',
+              border: '1px solid var(--border-color)',
+              backgroundColor: 'transparent',
+              color: 'var(--text-primary)',
+              cursor: 'pointer',
+              fontSize: '13px'
+            }}
+          >
+            取消
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -1932,13 +2533,28 @@ const senderAvatarCache = new Map<string, { avatarUrl?: string; displayName?: st
 const senderAvatarLoading = new Map<string, Promise<{ avatarUrl?: string; displayName?: string } | null>>()
 
 // 消息气泡组件
-function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, onRequireModelDownload }: {
+function MessageBubble({
+  message,
+  session,
+  showTime,
+  myAvatarUrl,
+  isGroupChat,
+  onRequireModelDownload,
+  onContextMenu,
+  isSelectionMode,
+  isSelected,
+  onToggleSelection
+}: {
   message: Message;
   session: ChatSession;
   showTime?: boolean;
   myAvatarUrl?: string;
   isGroupChat?: boolean;
   onRequireModelDownload?: (sessionId: string, messageId: string) => void;
+  onContextMenu?: (e: React.MouseEvent, message: Message) => void;
+  isSelectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelection?: (localId: number, isShiftKey?: boolean) => void;
 }) {
   const isSystem = isSystemMessage(message.localType)
   const isEmoji = message.localType === 47
@@ -1953,6 +2569,8 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
   const [senderName, setSenderName] = useState<string | undefined>(undefined)
   const [emojiError, setEmojiError] = useState(false)
   const [emojiLoading, setEmojiLoading] = useState(false)
+
+  // State variables...
   const [imageError, setImageError] = useState(false)
   const [imageLoading, setImageLoading] = useState(false)
   const [imageHasUpdate, setImageHasUpdate] = useState(false)
@@ -2643,9 +3261,39 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
     void requestVoiceTranscript()
   }, [autoTranscribeEnabled, isVoice, voiceDataUrl, voiceTranscript, voiceTranscriptError, voiceTranscriptLoading, requestVoiceTranscript])
 
+  // Selection mode handling removed from here to allow normal rendering
+  // We will wrap the output instead
+
+  // Regular rendering logic...
   if (isSystem) {
     return (
-      <div className="message-bubble system">
+      <div
+        className={`message-bubble system ${isSelectionMode ? 'selectable' : ''}`}
+        onContextMenu={(e) => onContextMenu?.(e, message)}
+        style={{ cursor: isSelectionMode ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+        onClick={(e) => {
+          if (isSelectionMode) {
+            e.stopPropagation()
+            onToggleSelection?.(message.localId, e.shiftKey)
+          }
+        }}
+      >
+        {isSelectionMode && (
+          <div className={`checkbox ${isSelected ? 'checked' : ''}`} style={{
+            width: '20px',
+            height: '20px',
+            borderRadius: '4px',
+            border: isSelected ? 'none' : '2px solid rgba(128,128,128,0.5)',
+            backgroundColor: isSelected ? 'var(--primary)' : 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'white',
+            flexShrink: 0
+          }}>
+            {isSelected && <Check size={14} strokeWidth={3} />}
+          </div>
+        )}
         <div className="bubble-content">{message.parsedContent}</div>
       </div>
     )
@@ -3344,27 +3992,81 @@ function MessageBubble({ message, session, showTime, myAvatarUrl, isGroupChat, o
           <span>{formatTime(message.createTime)}</span>
         </div>
       )}
-      <div className={`message-bubble ${bubbleClass} ${isEmoji && message.emojiCdnUrl && !emojiError ? 'emoji' : ''} ${isImage ? 'image' : ''} ${isVoice ? 'voice' : ''}`}>
-        <div className="bubble-avatar">
-          <Avatar
-            src={avatarUrl}
-            name={!isSent ? (isGroupChat ? (senderName || message.senderUsername || '?') : (session.displayName || session.username)) : '我'}
-            size={36}
-            className="bubble-avatar"
-          // If it's sent by me (isSent), we might not want 'group' class even if it's a group chat. 
-          // But 'group' class mainly handles default avatar icon.
-          // Let's rely on standard Avatar behavior.
-          />
+      <div
+        className={`message-wrapper-with-selection ${isSelectionMode ? 'selectable' : ''}`}
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          width: '100%',
+          justifyContent: isSent ? 'flex-end' : 'flex-start',
+          cursor: isSelectionMode ? 'pointer' : 'default'
+        }}
+        onClick={(e) => {
+          if (isSelectionMode) {
+            e.stopPropagation()
+            onToggleSelection?.(message.localId, e.shiftKey)
+          }
+        }}
+      >
+        {isSelectionMode && !isSent && (
+          <div className={`checkbox ${isSelected ? 'checked' : ''}`} style={{
+            width: '20px',
+            height: '20px',
+            borderRadius: '4px',
+            border: isSelected ? 'none' : '2px solid rgba(128,128,128,0.5)',
+            backgroundColor: isSelected ? 'var(--primary)' : 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'white',
+            marginRight: '12px',
+            marginTop: '10px', // Align with avatar top
+            flexShrink: 0
+          }}>
+            {isSelected && <Check size={14} strokeWidth={3} />}
+          </div>
+        )}
+
+        <div className={`message-bubble ${bubbleClass} ${isEmoji && message.emojiCdnUrl && !emojiError ? 'emoji' : ''} ${isImage ? 'image' : ''} ${isVoice ? 'voice' : ''}`}
+          onContextMenu={(e) => onContextMenu?.(e, message)}
+        >
+          <div className="bubble-avatar">
+            <Avatar
+              src={avatarUrl}
+              name={!isSent ? (isGroupChat ? (senderName || message.senderUsername || '?') : (session.displayName || session.username)) : '我'}
+              size={36}
+              className="bubble-avatar"
+            />
+          </div>
+          <div className="bubble-body">
+            {/* 群聊中显示发送者名称 */}
+            {isGroupChat && !isSent && (
+              <div className="sender-name">
+                {senderName || message.senderUsername || '群成员'}
+              </div>
+            )}
+            {renderContent()}
+          </div>
         </div>
-        <div className="bubble-body">
-          {/* 群聊中显示发送者名称 */}
-          {isGroupChat && !isSent && (
-            <div className="sender-name">
-              {senderName || message.senderUsername || '群成员'}
-            </div>
-          )}
-          {renderContent()}
-        </div>
+
+        {isSelectionMode && isSent && (
+          <div className={`checkbox ${isSelected ? 'checked' : ''}`} style={{
+            width: '20px',
+            height: '20px',
+            borderRadius: '4px',
+            border: isSelected ? 'none' : '2px solid rgba(128,128,128,0.5)',
+            backgroundColor: isSelected ? 'var(--primary)' : 'transparent',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'white',
+            marginLeft: '12px',
+            marginTop: '10px',
+            flexShrink: 0
+          }}>
+            {isSelected && <Check size={14} strokeWidth={3} />}
+          </div>
+        )}
       </div>
     </>
   )

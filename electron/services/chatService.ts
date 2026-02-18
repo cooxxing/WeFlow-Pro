@@ -84,6 +84,7 @@ export interface Message {
     datadesc: string
     datatitle?: string
   }>
+  _db_path?: string // 内部字段：记录消息所属数据库路径
 }
 
 export interface Contact {
@@ -109,7 +110,7 @@ const emojiDownloading: Map<string, Promise<string | null>> = new Map()
 class ChatService {
   private configService: ConfigService
   private connected = false
-  private messageCursors: Map<string, { cursor: number; fetched: number; batchSize: number; startTime?: number; endTime?: number; ascending?: boolean }> = new Map()
+  private messageCursors: Map<string, { cursor: number; fetched: number; batchSize: number; startTime?: number; endTime?: number; ascending?: boolean; bufferedMessages?: any[] }> = new Map()
   private readonly messageBatchDefault = 50
   private avatarCache: Map<string, ContactCacheEntry>
   private readonly avatarCacheTtlMs = 10 * 60 * 1000
@@ -267,6 +268,32 @@ class ChatService {
       console.error('ChatService: 关闭数据库失败:', e)
     }
     this.connected = false
+  }
+
+  /**
+   * 修改消息内容
+   */
+  async updateMessage(sessionId: string, localId: number, newContent: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const connectResult = await this.ensureConnected()
+      if (!connectResult.success) return { success: false, error: connectResult.error }
+      return await wcdbService.updateMessage(sessionId, localId, newContent)
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  }
+
+  /**
+   * 删除消息
+   */
+  async deleteMessage(sessionId: string, localId: number, createTime: number, dbPathHint?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const connectResult = await this.ensureConnected()
+      if (!connectResult.success) return { success: false, error: connectResult.error }
+      return await wcdbService.deleteMessage(sessionId, localId, createTime, dbPathHint)
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
   }
 
   /**
@@ -729,7 +756,7 @@ class ChatService {
       // 4. startTime/endTime 改变（视为全新查询）
       // 5. ascending 改变
       const needNewCursor = !state ||
-        offset === 0 ||
+        offset !== state.fetched || // Offset mismatch -> must reset cursor
         state.batchSize !== batchSize ||
         state.startTime !== startTime ||
         state.endTime !== endTime ||
@@ -761,6 +788,7 @@ class ChatService {
         // 如果需要跳过消息(offset > 0),逐批获取但不返回
         // 注意：仅在 offset === 0 时重建游标最安全；
         // 当 startTime/endTime 变化导致重建时，offset 应由前端重置为 0
+        state.bufferedMessages = []
         if (offset > 0) {
           console.warn(`[ChatService] 新游标需跳过 ${offset} 条消息（startTime=${startTime}, endTime=${endTime}）`)
           let skipped = 0
@@ -777,8 +805,22 @@ class ChatService {
               console.warn(`[ChatService] 跳过时数据耗尽: skipped=${skipped}/${offset}`)
               return { success: true, messages: [], hasMore: false }
             }
-            skipped += skipBatch.rows.length
-            state.fetched += skipBatch.rows.length
+
+            const count = skipBatch.rows.length
+            // Check if we overshot the offset
+            if (skipped + count > offset) {
+              const keepIndex = offset - skipped
+              if (keepIndex < count) {
+                state.bufferedMessages = skipBatch.rows.slice(keepIndex)
+              }
+            }
+
+            skipped += count
+            state.fetched += count
+
+            // If satisfied offset, break
+            if (skipped >= offset) break;
+
             if (!skipBatch.hasMore) {
               console.warn(`[ChatService] 跳过后无更多数据: skipped=${skipped}/${offset}`)
               return { success: true, messages: [], hasMore: false }
@@ -787,13 +829,8 @@ class ChatService {
           if (attempts >= maxSkipAttempts) {
             console.error(`[ChatService] 跳过消息超过最大尝试次数: attempts=${attempts}`)
           }
-          console.log(`[ChatService] 跳过完成: skipped=${skipped}, fetched=${state.fetched}`)
+          console.log(`[ChatService] 跳过完成: skipped=${skipped}, fetched=${state.fetched}, buffered=${state.bufferedMessages?.length || 0}`)
         }
-      } else if (state && offset !== state.fetched) {
-        // offset 与 fetched 不匹配,说明状态不一致
-        console.warn(`[ChatService] 游标状态不一致: offset=${offset}, fetched=${state.fetched}, 继续使用现有游标`)
-        // 不重新创建游标,而是继续使用现有游标
-        // 这样可以避免频繁重建导致的问题
       }
 
       // 确保 state 已初始化
@@ -803,19 +840,35 @@ class ChatService {
       }
 
       // 获取当前批次的消息
-      const batch = await wcdbService.fetchMessageBatch(state.cursor)
-      if (!batch.success) {
-        console.error('[ChatService] 获取消息批次失败:', batch.error)
-        return { success: false, error: batch.error || '获取消息失败' }
+      // Use buffered rows from skip logic if available
+      let rows: any[] = state.bufferedMessages || []
+      state.bufferedMessages = undefined // Clear buffer after use
+
+      // If buffer is not enough to fill a batch, try to fetch more
+      // Or if buffer is empty, fetch a batch
+      if (rows.length < batchSize) {
+        const nextBatch = await wcdbService.fetchMessageBatch(state.cursor)
+        if (nextBatch.success && nextBatch.rows) {
+          rows = rows.concat(nextBatch.rows)
+          state.fetched += nextBatch.rows.length
+        } else if (!nextBatch.success) {
+          console.error('[ChatService] 获取消息批次失败:', nextBatch.error)
+          // If we have some buffered rows, we can still return them? 
+          // Or fail? Let's return what we have if any, otherwise fail.
+          if (rows.length === 0) {
+            return { success: false, error: nextBatch.error || '获取消息失败' }
+          }
+        }
       }
 
-      if (!batch.rows) {
-        console.error('[ChatService] 获取消息失败: 返回数据为空')
-        return { success: false, error: '获取消息失败: 返回数据为空' }
+      // If we have more than limit (due to buffer + full batch), slice it
+      if (rows.length > limit) {
+        rows = rows.slice(0, limit)
+        // Note: We don't adjust state.fetched here because it tracks cursor position.
+        // Next time offset will catch up or mismatch trigger reset.
       }
 
-      const rows = batch.rows as Record<string, any>[]
-      const hasMore = batch.hasMore === true
+      const hasMore = rows.length > 0 // Simplified hasMore check for now, can be improved
 
       const normalized = this.normalizeMessageOrder(this.mapRowsToMessages(rows))
 

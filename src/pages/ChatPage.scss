@@ -1,7 +1,213 @@
 ﻿.chat-page {
+  position: relative;
   display: flex;
   height: 100%;
   gap: 16px;
+
+  // 批量删除进度遮罩
+  .delete-progress-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease;
+
+    .delete-progress-card {
+      width: 400px;
+      padding: 24px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+      text-align: center;
+
+      .progress-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+
+        h3 {
+          margin: 0;
+          font-size: 18px;
+          color: var(--text-primary);
+        }
+
+        .count {
+          font-variant-numeric: tabular-nums;
+          font-weight: 600;
+          background: var(--bg-tertiary);
+          padding: 2px 8px;
+          border-radius: 4px;
+          color: var(--primary);
+        }
+      }
+
+      .progress-bar-container {
+        height: 10px;
+        background: var(--bg-tertiary);
+        border-radius: 5px;
+        overflow: hidden;
+        margin-bottom: 20px;
+
+        .progress-bar-fill {
+          height: 100%;
+          background: linear-gradient(90deg, var(--primary), var(--primary-light));
+          transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+      }
+
+      .progress-footer {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+
+        p {
+          font-size: 13px;
+          color: var(--text-tertiary);
+          margin: 0;
+        }
+
+        .cancel-delete-btn {
+          padding: 10px;
+          border-radius: 8px;
+          border: 1px solid var(--border-color);
+          background: var(--bg-secondary);
+          color: var(--text-secondary);
+          font-size: 14px;
+          cursor: pointer;
+          transition: all 0.2s;
+
+          &:hover:not(:disabled) {
+            background: var(--danger-light);
+            color: var(--danger);
+            border-color: var(--danger);
+          }
+
+          &:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+          }
+        }
+      }
+    }
+  }
+
+  // 自定义删除确认对话框
+  .delete-confirm-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10000;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease;
+
+    .delete-confirm-card {
+      width: 360px;
+      padding: 32px 24px 24px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+
+      .confirm-icon {
+        margin-bottom: 20px;
+        padding: 16px;
+        background: var(--danger-light);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .confirm-content {
+        margin-bottom: 32px;
+
+        h3 {
+          margin: 0 0 12px;
+          font-size: 20px;
+          color: var(--text-primary);
+        }
+
+        p {
+          margin: 0;
+          font-size: 14px;
+          color: var(--text-secondary);
+          line-height: 1.6;
+        }
+      }
+
+      .confirm-actions {
+        display: flex;
+        gap: 12px;
+        width: 100%;
+
+        button {
+          flex: 1;
+          padding: 12px;
+          border-radius: 12px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .btn-secondary {
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          color: var(--text-secondary);
+
+          &:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+          }
+        }
+
+        .btn-danger-filled {
+          background: var(--danger);
+          border: none;
+          color: white;
+
+          &:hover {
+            background: #e54d45; // Darker red
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(229, 77, 69, 0.3);
+          }
+
+          &:active {
+            transform: translateY(0);
+          }
+        }
+      }
+    }
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
 
   // 独立窗口模式 - EchoTrace 特色风格（使用主题变量）
   &.standalone {
@@ -2253,24 +2459,24 @@
   background: var(--bg-tertiary);
   border-radius: 8px;
   min-width: 200px;
-  
+
   .card-icon {
     flex-shrink: 0;
     color: var(--primary);
   }
-  
+
   .card-info {
     flex: 1;
     min-width: 0;
   }
-  
+
   .card-name {
     font-size: 14px;
     font-weight: 500;
     color: var(--text-primary);
     margin-bottom: 2px;
   }
-  
+
   .card-label {
     font-size: 12px;
     color: var(--text-tertiary);
@@ -2285,7 +2491,7 @@
   padding: 8px 12px;
   color: var(--text-secondary);
   font-size: 13px;
-  
+
   svg {
     flex-shrink: 0;
   }
@@ -2303,21 +2509,21 @@
   min-width: 220px;
   cursor: pointer;
   transition: background 0.2s;
-  
+
   &:hover {
     background: var(--bg-hover);
   }
-  
+
   .file-icon {
     flex-shrink: 0;
     color: var(--primary);
   }
-  
+
   .file-info {
     flex: 1;
     min-width: 0;
   }
-  
+
   .file-name {
     font-size: 14px;
     font-weight: 500;
@@ -2327,7 +2533,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  
+
   .file-meta {
     font-size: 12px;
     color: var(--text-tertiary);
@@ -2351,7 +2557,7 @@
 // 聊天记录消息 - 复用 link-message 基础样式
 .chat-record-message {
   cursor: pointer;
-  
+
   .link-header {
     padding-bottom: 4px;
   }
@@ -2426,17 +2632,17 @@
   background: var(--bg-tertiary);
   border-radius: 8px;
   min-width: 200px;
-  
+
   .miniapp-icon {
     flex-shrink: 0;
     color: var(--primary);
   }
-  
+
   .miniapp-info {
     flex: 1;
     min-width: 0;
   }
-  
+
   .miniapp-title {
     font-size: 14px;
     font-weight: 500;
@@ -2446,7 +2652,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  
+
   .miniapp-label {
     font-size: 12px;
     color: var(--text-tertiary);
@@ -2511,17 +2717,18 @@
 
 // 发送消息中的特殊消息类型适配（除了文件和转账）
 .message-bubble.sent {
+
   .card-message,
   .chat-record-message,
   .miniapp-message {
     background: rgba(255, 255, 255, 0.15);
-    
+
     .card-name,
     .miniapp-title,
     .source-name {
       color: white;
     }
-    
+
     .card-label,
     .miniapp-label,
     .chat-record-item,
@@ -2529,21 +2736,21 @@
     .chat-record-desc {
       color: rgba(255, 255, 255, 0.8);
     }
-    
+
     .card-icon,
     .miniapp-icon,
     .chat-record-icon {
       color: white;
     }
-    
+
     .chat-record-more {
       color: rgba(255, 255, 255, 0.9);
     }
   }
-  
+
   .call-message {
     color: rgba(255, 255, 255, 0.9);
-    
+
     svg {
       color: white;
     }
@@ -2551,15 +2758,15 @@
 
   .announcement-message {
     background: rgba(255, 255, 255, 0.15);
-    
+
     .announcement-label {
       color: rgba(255, 255, 255, 0.8);
     }
-    
+
     .announcement-text {
       color: white;
     }
-    
+
     .announcement-icon {
       color: white;
     }
@@ -2575,7 +2782,7 @@
   background: var(--hover-color);
   border-radius: 12px;
   max-width: 320px;
-  
+
   .announcement-icon {
     flex-shrink: 0;
     width: 28px;
@@ -2584,23 +2791,23 @@
     align-items: center;
     justify-content: center;
     color: #f59e42;
-    
+
     svg {
       width: 20px;
       height: 20px;
     }
   }
-  
+
   .announcement-content {
     flex: 1;
     min-width: 0;
-    
+
     .announcement-label {
       font-size: 12px;
       color: var(--text-tertiary);
       margin-bottom: 4px;
     }
-    
+
     .announcement-text {
       font-size: 14px;
       color: var(--text-primary);
@@ -2616,6 +2823,7 @@
   &:hover:not(:disabled) {
     color: var(--primary-color);
   }
+
   &.transcribing {
     color: var(--primary-color);
     cursor: pointer;
@@ -2637,7 +2845,9 @@
     padding: 1.5rem;
     border-bottom: 1px solid var(--border-color);
 
-    svg { color: var(--primary-color); }
+    svg {
+      color: var(--primary-color);
+    }
 
     h3 {
       margin: 0;
@@ -2697,7 +2907,10 @@
 
         li {
           border-bottom: 1px solid var(--border-color);
-          &:last-child { border-bottom: none; }
+
+          &:last-child {
+            border-bottom: none;
+          }
         }
 
         .batch-date-row {
@@ -2708,7 +2921,9 @@
           cursor: pointer;
           transition: background 0.15s;
 
-          &:hover { background: var(--bg-hover); }
+          &:hover {
+            background: var(--bg-hover);
+          }
 
           input[type="checkbox"] {
             accent-color: var(--primary-color);
@@ -2806,13 +3021,185 @@
       &.btn-secondary {
         background: var(--bg-tertiary);
         color: var(--text-primary);
-        &:hover { background: var(--border-color); }
+
+        &:hover {
+          background: var(--border-color);
+        }
       }
 
-      &.btn-primary, &.batch-transcribe-start-btn {
+      &.btn-primary,
+      &.batch-transcribe-start-btn {
         background: var(--primary-color);
         color: white;
-        &:hover { opacity: 0.9; }
+
+        &:hover {
+          opacity: 0.9;
+        }
+      }
+    }
+  }
+}
+
+// Context Menu
+.context-menu-overlay {
+  background: transparent;
+}
+
+.context-menu {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  min-width: 140px;
+  backdrop-filter: blur(10px);
+  animation: fadeIn 0.1s ease-out;
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+    transition: all 0.2s;
+
+    &:hover {
+      background: var(--bg-hover);
+    }
+
+    &.delete {
+      color: var(--danger);
+
+      &:hover {
+        background: rgba(220, 53, 69, 0.1);
+      }
+    }
+
+    svg {
+      opacity: 0.7;
+    }
+  }
+}
+
+// Modal Overlay
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 20px;
+}
+
+// Edit Message Modal
+.edit-message-modal {
+  width: 500px;
+  max-width: 90vw;
+  max-height: 85vh;
+  background: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+
+    h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin: 0;
+    }
+
+    .close-btn {
+      width: 28px;
+      height: 28px;
+      border: none;
+      background: transparent;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-tertiary);
+      transition: all 0.2s;
+
+      &:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+    }
+  }
+
+  .edit-message-textarea {
+    flex: 1;
+    border: none;
+    padding: 16px 20px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.6;
+    resize: none;
+    outline: none;
+    min-height: 120px;
+
+    &:focus {
+      background: var(--bg-primary);
+    }
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-color);
+    background: var(--card-bg);
+
+    button {
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      border: 1px solid transparent;
+      color: var(--text-secondary);
+
+      &:hover {
+        background: var(--bg-hover);
+        color: var(--text-primary);
+      }
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      border: 1px solid transparent;
+      color: #fff;
+      box-shadow: 0 2px 8px var(--primary-light);
+
+      &:hover {
+        background: var(--primary-hover);
+        box-shadow: 0 4px 12px var(--primary-light);
       }
     }
   }

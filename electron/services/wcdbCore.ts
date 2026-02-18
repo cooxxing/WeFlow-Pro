@@ -27,6 +27,8 @@ export class WcdbCore {
   private wcdbCloseAccount: any = null
   private wcdbSetMyWxid: any = null
   private wcdbFreeString: any = null
+  private wcdbUpdateMessage: any = null
+  private wcdbDeleteMessage: any = null
   private wcdbGetSessions: any = null
   private wcdbGetMessages: any = null
   private wcdbGetMessageCount: any = null
@@ -383,6 +385,20 @@ export class WcdbCore {
         this.wcdbSetMyWxid = this.lib.func('int32 wcdb_set_my_wxid(int64 handle, const char* wxid)')
       } catch {
         this.wcdbSetMyWxid = null
+      }
+
+      // wcdb_status wcdb_update_message(wcdb_handle handle, const char* session_id, int64_t local_id, const char* new_content, char** out_error)
+      try {
+        this.wcdbUpdateMessage = this.lib.func('int32 wcdb_update_message(int64 handle, const char* sessionId, int64 localId, const char* newContent, _Out_ void** outError)')
+      } catch {
+        this.wcdbUpdateMessage = null
+      }
+
+      // wcdb_status wcdb_delete_message(wcdb_handle handle, const char* session_id, int64_t local_id, char** out_error)
+      try {
+        this.wcdbDeleteMessage = this.lib.func('int32 wcdb_delete_message(int64 handle, const char* sessionId, int64 localId, int32 createTime, const char* dbPathHint, _Out_ void** outError)')
+      } catch {
+        this.wcdbDeleteMessage = null
       }
 
       // void wcdb_free_string(char* ptr)
@@ -1774,4 +1790,62 @@ export class WcdbCore {
       return { success: false, error: String(e) }
     }
   }
+  /**
+   * 修改消息内容
+   */
+  async updateMessage(sessionId: string, localId: number, newContent: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.initialized || !this.wcdbUpdateMessage) return { success: false, error: 'WCDB Not Initialized or Method Missing' }
+    if (!this.handle) return { success: false, error: 'Not Connected' }
+
+    return new Promise((resolve) => {
+      try {
+        const outError = [null as any]
+        const result = this.wcdbUpdateMessage(this.handle, sessionId, localId, newContent, outError)
+
+        if (result !== 0) {
+          let errorMsg = 'Unknown Error'
+          if (outError[0]) {
+            errorMsg = this.decodeJsonPtr(outError[0]) || 'Unknown Error (Decode Failed)'
+          }
+          resolve({ success: false, error: errorMsg })
+          return
+        }
+
+        resolve({ success: true })
+      } catch (e) {
+        resolve({ success: false, error: String(e) })
+      }
+    })
+  }
+
+  /**
+   * 删除消息
+   */
+  async deleteMessage(sessionId: string, localId: number, createTime: number, dbPathHint?: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.initialized || !this.wcdbDeleteMessage) return { success: false, error: 'WCDB Not Initialized or Method Missing' }
+    if (!this.handle) return { success: false, error: 'Not Connected' }
+
+    return new Promise((resolve) => {
+      try {
+        const outError = [null as any]
+        const result = this.wcdbDeleteMessage(this.handle, sessionId, localId, createTime || 0, dbPathHint || '', outError)
+
+        if (result !== 0) {
+          let errorMsg = 'Unknown Error'
+          if (outError[0]) {
+            errorMsg = this.decodeJsonPtr(outError[0]) || 'Unknown Error (Decode Failed)'
+          }
+          console.error(`[WcdbCore] deleteMessage fail: code=${result}, error=${errorMsg}`)
+          resolve({ success: false, error: errorMsg })
+          return
+        }
+
+        resolve({ success: true })
+      } catch (e) {
+        console.error(`[WcdbCore] deleteMessage exception:`, e)
+        resolve({ success: false, error: String(e) })
+      }
+    })
+  }
 }
+

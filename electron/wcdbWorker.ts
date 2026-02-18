@@ -150,6 +150,12 @@ if (parentPort) {
                 case 'verifyUser':
                     result = await core.verifyUser(payload.message, payload.hwnd)
                     break
+                case 'updateMessage':
+                    result = await core.updateMessage(payload.sessionId, payload.localId, payload.newContent)
+                    break
+                case 'deleteMessage':
+                    result = await core.deleteMessage(payload.sessionId, payload.localId, payload.createTime, payload.dbPathHint)
+                    break
 
                 default:
                     result = { success: false, error: `Unknown method: ${type}` }

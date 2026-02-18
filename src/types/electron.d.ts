@@ -85,6 +85,8 @@ export interface ElectronAPI {
     }>
     getContact: (username: string) => Promise<Contact | null>
     getContactAvatar: (username: string) => Promise<{ avatarUrl?: string; displayName?: string } | null>
+    updateMessage: (sessionId: string, localId: number, newContent: string) => Promise<{ success: boolean; error?: string }>
+    deleteMessage: (sessionId: string, localId: number, createTime: number, dbPathHint?: string) => Promise<{ success: boolean; error?: string }>
     resolveTransferDisplayNames: (chatroomId: string, payerUsername: string, receiverUsername: string) => Promise<{ payerName: string; receiverName: string }>
     getContacts: () => Promise<{
       success: boolean
