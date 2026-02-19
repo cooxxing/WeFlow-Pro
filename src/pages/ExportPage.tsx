@@ -66,6 +66,7 @@ function ExportPage() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const displayNameDropdownRef = useRef<HTMLDivElement>(null)
   const preselectAppliedRef = useRef(false)
+  const statsRequestIdRef = useRef(0)
 
   const preselectSessionIds = useMemo(() => {
     const state = location.state as { preselectSessionIds?: unknown; preselectSessionId?: unknown } | null
@@ -382,7 +383,9 @@ function ExportPage() {
     if (selectedSessions.size === 0 || !exportFolder) return
 
     // 先获取预估统计
+    const requestId = ++statsRequestIdRef.current
     setIsLoadingStats(true)
+    setPreExportStats(null)
     setShowPreExportDialog(true)
     try {
       const sessionList = Array.from(selectedSessions)
@@ -400,16 +403,21 @@ function ExportPage() {
         } : null
       }
       const stats = await window.electronAPI.export.getExportStats(sessionList, exportOptions)
+      if (statsRequestIdRef.current !== requestId) return
       setPreExportStats(stats)
     } catch (e) {
       console.error('获取导出统计失败:', e)
+      if (statsRequestIdRef.current !== requestId) return
       setPreExportStats(null)
     } finally {
+      if (statsRequestIdRef.current !== requestId) return
       setIsLoadingStats(false)
     }
   }
 
   const confirmExport = () => {
+    statsRequestIdRef.current++
+    setIsLoadingStats(false)
     setShowPreExportDialog(false)
     setPreExportStats(null)
 
@@ -911,7 +919,7 @@ function ExportPage() {
             {isLoadingStats ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '24px 0', justifyContent: 'center' }}>
                 <Loader2 size={20} className="spin" />
-                <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>正在统计消息...</span>
+                <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>正在统计消息，可直接点击“直接导出”跳过等待</span>
               </div>
             ) : preExportStats ? (
               <div style={{ padding: '12px 0' }}>
@@ -957,11 +965,11 @@ function ExportPage() {
               <p style={{ fontSize: 14, color: 'var(--text-secondary)', padding: '16px 0' }}>统计信息获取失败，仍可继续导出</p>
             )}
             <div className="layout-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
-              <button className="layout-cancel-btn" onClick={() => { setShowPreExportDialog(false); setPreExportStats(null) }}>
+              <button className="layout-cancel-btn" onClick={() => { statsRequestIdRef.current++; setIsLoadingStats(false); setShowPreExportDialog(false); setPreExportStats(null) }}>
                 取消
               </button>
-              <button className="layout-option-btn primary" onClick={confirmExport} disabled={isLoadingStats}>
-                <span className="layout-title">开始导出</span>
+              <button className="layout-option-btn primary" onClick={confirmExport}>
+                <span className="layout-title">{isLoadingStats ? '直接导出' : '开始导出'}</span>
               </button>
             </div>
           </div>
